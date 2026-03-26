@@ -1,0 +1,12 @@
+# Binaries
+backend/main
+
+# Dependencies (Optional to ignore go.sum, but usually committed)
+# /backend/go.sum
+
+# Specifications
+pruneDash.md
+
+# Local Environment
+.env
+.DS_Store
