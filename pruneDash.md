@@ -4,7 +4,7 @@ A lightweight, containerized, and intelligently "safe" system cleaning tool for 
 ---
 
 ## 🚀 1. Overview
-PruneDash is a modern maintenance dashboard designed to keep Linux systems (initially **CachyOS/Arch**) lean and performant. It bridges the gap between raw terminal commands and cumbersome system tools by providing a "Premium" visual experience that safely prunes system bloat while protecting active configurations.
+PruneDash is a modern maintenance dashboard designed to keep Linux systems (initially **CachyOS/Arch**) lean and performant. It evolves the traditional "blind" bash script philosophy into an intelligent, safety-first orchestration that prunes system bloat while protecting active "Rice" and configurations.
 
 **Core Philosophy:** ⚡ *Spin up. Clean. Spin down.* ⚡
 
@@ -56,24 +56,25 @@ PruneDash is a modern maintenance dashboard designed to keep Linux systems (init
 - [x] Scaffold HTMX-powered "Premium" dashboard.
 - [x] Docker Compose orchestration with basic networking.
 
-### Phase 2: System Audit Integration [IN PROGRESS]
-- [ ] Implement Go logic to fetch real data (Pacman, Journals, Caches).
-- [ ] Configure Docker volume mounts for host system visibility.
-- [ ] Implement the "Dry Run" command execution with real bash output streaming.
+### Phase 2: System Audit Integration [DONE]
+- [x] Implement Go logic to fetch real data (Pacman, Journals, Caches).
+- [x] Configure Docker volume mounts for host system visibility.
+- [x] Implement real-time audit via HTMX.
 
-### Phase 3: Configuration Intel (The "Rice" Protector)
+### Phase 3: The "Prune Bin" & Safety [DONE]
+- [x] Implement the staging directory logic (Move instead of Delete).
+- [x] Build the "Execute Prune" API endpoint.
+- [x] Create the "Undo" universal restore mechanism.
+- [x] UI: Add "Prune Now" and "Undo" controls.
+- [x] UI: Implement "Prunable Storage" vs "Protected Assets" breakdown for complete transparency.
+
+### Phase 4: Configuration Intel (The "Rice" Protector)
 - [ ] Build the Config Parser (Hyprland, Niri, GTK).
 - [ ] Identify active fonts, themes, and icons to mark as [Locked 🔒].
 
-### Phase 3: The Prune Bin & Undo
-- [ ] Develop the staging directory logic.
-- [ ] Create the "Restore" mechanism to move files back to original paths.
-- [ ] Build the real-time "Prune Console" log streamer.
-
-### Phase 4: Expansion & Polish
+### Phase 5: Expansion & Polish
 - [ ] Add support for Fedora (DNF) and Ubuntu/Debian (APT) caching logic.
 - [ ] Refine micro-animations and HSL transitions for a premium feel.
-- [ ] Finalize telemetry/reporting for "Space Reclaimed" over time.
 
 ---
 
