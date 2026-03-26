@@ -5,6 +5,10 @@ services:
       dockerfile: Dockerfile
     ports:
       - "3333:3333"
+    volumes:
+      - /var/cache/pacman/pkg:/host/var/cache/pacman/pkg:ro
+      - /var/log/journal:/host/var/log/journal:ro
+      - /home/nui/.cache:/host/home/nui/.cache:ro
     environment:
       - NODE_ENV=development
     restart: always

@@ -51,15 +51,19 @@ PruneDash is a modern maintenance dashboard designed to keep Linux systems (init
 
 ## 🗺️ 4. Development Roadmap
 
-### Phase 1: The Foundation
-- [ ] Initialize Go backend with basic system command execution (Dry Run mode).
-- [ ] Scaffold Vue 3 dashboard with initial "Scan" and "Results" views.
-- [ ] Implement Docker Compose setup with appropriate volume mounts.
+### Phase 1: The Foundation [DONE]
+- [x] Initialize Go backend with Fiber.
+- [x] Scaffold HTMX-powered "Premium" dashboard.
+- [x] Docker Compose orchestration with basic networking.
 
-### Phase 2: Configuration Intel
+### Phase 2: System Audit Integration [IN PROGRESS]
+- [ ] Implement Go logic to fetch real data (Pacman, Journals, Caches).
+- [ ] Configure Docker volume mounts for host system visibility.
+- [ ] Implement the "Dry Run" command execution with real bash output streaming.
+
+### Phase 3: Configuration Intel (The "Rice" Protector)
 - [ ] Build the Config Parser (Hyprland, Niri, GTK).
-- [ ] Implement logic to cross-reference identified themes with file paths.
-- [ ] UI: Tagging system for "Locked" vs "Safe to Prune" items.
+- [ ] Identify active fonts, themes, and icons to mark as [Locked 🔒].
 
 ### Phase 3: The Prune Bin & Undo
 - [ ] Develop the staging directory logic.
