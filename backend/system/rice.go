@@ -260,6 +260,22 @@ func GetProtectedAssets(logChan chan string, env CoreEnvironment) []ProtectedAss
 		assets = append(assets, hyprAssets...)
 	}
 
+	// App-specific configs
+	LogToChan(logChan, "Parsing Configurations for frequently used apps...")
+	for _, app := range env.Apps {
+		if app == "alacritty" {
+			assets = append(assets, ParseAlacrittyConfig("/host/home/nui/.config/alacritty/alacritty.toml")...)
+		} else if app == "kitty" {
+			assets = append(assets, ParseKittyConfig("/host/home/nui/.config/kitty/kitty.conf")...)
+		} else if app == "rofi" {
+			assets = append(assets, ParseRofiConfig("/host/home/nui/.config/rofi/config.rasi")...)
+		} else if app == "waybar" {
+			assets = append(assets, ParseWaybarConfig("/host/home/nui/.config/waybar/style.css")...)
+		} else if app == "wofi" {
+			assets = append(assets, ParseWofiConfig("/host/home/nui/.config/wofi/config")...)
+		}
+	}
+
 	// 3. Parse DM (SDDM) Config
 	if env.DM == "sddm" {
 		LogToChan(logChan, "Detecting SDDM Login Theme...")
@@ -354,6 +370,128 @@ func ParseGTKSettings(path string) []ProtectedAsset {
 	return assets
 }
 
+// Detects assets from Alacritty config
+func ParseAlacrittyConfig(path string) []ProtectedAsset {
+	var assets []ProtectedAsset
+	content, err := os.ReadFile(path)
+	if err != nil { return assets }
+	
+	lines := strings.Split(string(content), "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "family =") || strings.HasPrefix(line, "family:") {
+			name := extractValue(line)
+			if name != "" {
+				assets = append(assets, ProtectedAsset{Name: name, Type: "font", Source: "Alacritty Config", Priority: 2})
+			}
+		}
+	}
+	return assets
+}
+
+// Detects assets from Kitty config
+func ParseKittyConfig(path string) []ProtectedAsset {
+	var assets []ProtectedAsset
+	content, err := os.ReadFile(path)
+	if err != nil { return assets }
+
+	lines := strings.Split(string(content), "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "font_family") {
+			parts := strings.Fields(line)
+			if len(parts) > 1 {
+				name := strings.Join(parts[1:], " ")
+				assets = append(assets, ProtectedAsset{Name: name, Type: "font", Source: "Kitty Config", Priority: 2})
+			}
+		}
+		if strings.HasPrefix(line, "include") {
+			parts := strings.Fields(line)
+			if len(parts) > 1 {
+				themeName := filepath.Base(parts[1])
+				themeName = strings.TrimSuffix(themeName, filepath.Ext(themeName))
+				assets = append(assets, ProtectedAsset{Name: themeName, Type: "theme", Source: "Kitty Theme", Priority: 2})
+			}
+		}
+	}
+	return assets
+}
+
+// Detects assets from Rofi config
+func ParseRofiConfig(path string) []ProtectedAsset {
+	var assets []ProtectedAsset
+	content, err := os.ReadFile(path)
+	if err != nil { return assets }
+
+	lines := strings.Split(string(content), "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "font:") {
+			val := extractValue(strings.TrimSuffix(line, ";"))
+			if val != "" {
+				// Remove font size
+				words := strings.Fields(val)
+				if len(words) > 1 {
+					val = strings.Join(words[:len(words)-1], " ")
+				}
+				assets = append(assets, ProtectedAsset{Name: val, Type: "font", Source: "Rofi Config", Priority: 2})
+			}
+		}
+		if strings.HasPrefix(line, "@theme") || strings.HasPrefix(line, "@import") {
+			val := extractValue(strings.TrimSuffix(line, ";"))
+			if val != "" {
+				themeName := filepath.Base(val)
+				themeName = strings.TrimSuffix(themeName, filepath.Ext(themeName))
+				assets = append(assets, ProtectedAsset{Name: themeName, Type: "theme", Source: "Rofi Theme", Priority: 2})
+			}
+		}
+	}
+	return assets
+}
+
+// Detects assets from Waybar config
+func ParseWaybarConfig(path string) []ProtectedAsset {
+	var assets []ProtectedAsset
+	content, err := os.ReadFile(path)
+	if err != nil { return assets }
+
+	lines := strings.Split(string(content), "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "font-family:") {
+			val := extractValue(strings.TrimSuffix(line, ";"))
+			if val != "" {
+				// Clean up font names from CSS
+				val = strings.Trim(val, `"'`)
+				val = strings.Split(val, ",")[0]
+				assets = append(assets, ProtectedAsset{Name: val, Type: "font", Source: "Waybar CSS", Priority: 2})
+			}
+		}
+	}
+	return assets
+}
+
+// Detects assets from Wofi config
+func ParseWofiConfig(path string) []ProtectedAsset {
+	var assets []ProtectedAsset
+	content, err := os.ReadFile(path)
+	if err != nil { return assets }
+
+	lines := strings.Split(string(content), "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "style=") {
+			val := extractValue(line)
+			if val != "" {
+				themeName := filepath.Base(val)
+				themeName = strings.TrimSuffix(themeName, filepath.Ext(themeName))
+				assets = append(assets, ProtectedAsset{Name: themeName, Type: "theme", Source: "Wofi Style", Priority: 2})
+			}
+		}
+	}
+	return assets
+}
+
 func ParseHyprlandConfig(path string) []ProtectedAsset {
 	var assets []ProtectedAsset
 	content, err := os.ReadFile(path)
@@ -380,7 +518,7 @@ func ParseHyprlandConfig(path string) []ProtectedAsset {
 
 // DetectApps identifies frequently used and startup apps.
 func DetectApps(logChan chan string) []string {
-	LogToChan(logChan, "Scanning for Startup and Common Apps...")
+	LogToChan(logChan, "Scanning for Startup, Common, and Keybind Apps...")
 	var apps []string
 
 	// 1. Startup Apps
@@ -391,7 +529,47 @@ func DetectApps(logChan chan string) []string {
 		}
 	}
 
-	// 2. Common Rice Tools/Apps
+	// 2. WM Keybinds (Hyprland & Niri)
+	hyprContent, _ := os.ReadFile("/host/home/nui/.config/hypr/hyprland.conf")
+	for _, line := range strings.Split(string(hyprContent), "\n") {
+		if strings.Contains(line, "exec,") {
+			parts := strings.Split(line, "exec,")
+			if len(parts) > 1 {
+				fields := strings.Fields(parts[1])
+				if len(fields) > 0 {
+					apps = append(apps, fields[0])
+				}
+			}
+		}
+	}
+	niriContent, _ := os.ReadFile("/host/home/nui/.config/niri/config.kdl")
+	for _, line := range strings.Split(string(niriContent), "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "spawn ") || strings.HasPrefix(line, "command ") {
+			parts := strings.SplitN(line, "\"", 3)
+			if len(parts) >= 2 {
+				fields := strings.Fields(parts[1])
+				if len(fields) > 0 {
+					apps = append(apps, fields[0])
+				}
+			}
+		}
+	}
+
+	// 3. Recent Apps
+	recentContent, _ := os.ReadFile("/host/home/nui/.local/share/recently-used.xbel")
+	for _, line := range strings.Split(string(recentContent), "\n") {
+		if strings.Contains(line, "exec=&apos;") {
+			parts := strings.Split(line, "exec=&apos;")
+			if len(parts) > 1 {
+				cmd := strings.Split(parts[1], " ")[0]
+				cmd = strings.TrimSuffix(cmd, "&apos;")
+				apps = append(apps, cmd)
+			}
+		}
+	}
+
+	// 4. Common Rice Tools/Apps
 	common := []string{"alacritty", "kitty", "foot", "waybar", "polybar", "rofi", "wofi", "firefox", "thunar", "dolphin"}
 	for _, app := range common {
 		if _, err := RunHostCommand("command -v " + app); err == nil {
