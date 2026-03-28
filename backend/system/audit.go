@@ -99,3 +99,10 @@ func GetUserCacheSize() (int64, error) {
 	mesaSize, _ := DirSize("/host/home/nui/.cache/mesa_shader_cache")
 	return thumbSize + mesaSize, nil
 }
+
+// GetRiceMetrics returns the detected environment and protected assets.
+func GetRiceMetrics() (CoreEnvironment, []ProtectedAsset) {
+	env := DetectEnvironment()
+	assets := GetProtectedAssets()
+	return env, assets
+}

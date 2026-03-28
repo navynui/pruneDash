@@ -11,6 +11,7 @@ services:
       - /var/cache/pacman/pkg:/host/var/cache/pacman/pkg:rw
       - /var/log/journal:/host/var/log/journal:rw
       - /home/nui/.cache:/host/home/nui/.cache:rw
+      - /home/nui/.config:/host/home/nui/.config:ro
     environment:
       - NODE_ENV=development
     restart: always
