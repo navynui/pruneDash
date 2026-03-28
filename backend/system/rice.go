@@ -733,6 +733,10 @@ func GetPrunableAssets(logChan chan string, protected []ProtectedAsset) ([]Prote
 	protectedMap := make(map[string]bool)
 	for _, p := range protected {
 		protectedMap[p.Name+p.Type] = true
+		// Alias cursor as icon since Linux cursors are stored inside system icon directories
+		if p.Type == "cursor" {
+			protectedMap[p.Name+"icon"] = true
+		}
 	}
 
 	var prunable []ProtectedAsset
