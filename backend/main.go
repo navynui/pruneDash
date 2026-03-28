@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -165,11 +166,6 @@ func main() {
 				<div id="intel-section" class="mb-6 bg-slate-800/20 rounded-2xl p-5 border border-white/5 border-dashed animate-pulse text-center">
 					<p class="text-[10px] text-slate-500 uppercase tracking-widest font-bold">Waiting for System Intel...</p>
 				</div>
-                
-                <div id="results-skeleton" class="space-y-4 animate-pulse">
-                    <div class="h-4 bg-white/5 rounded w-3/4"></div>
-                    <div class="h-4 bg-white/5 rounded w-1/2"></div>
-                </div>
 			</div>
 		`, scanID))
 	})
@@ -349,7 +345,6 @@ func formatScanResultsHTML(res system.ScanResult) string {
                         <div class="space-y-4">
                             <h4 class="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Prunable Items</h4>
                             %s
-                            %s
                         </div>
 
                         <!-- Protected Section -->
@@ -379,7 +374,7 @@ func formatScanResultsHTML(res system.ScanResult) string {
             </div>
 		</div>
 	`, 
-		len(res.Assets), len(res.Assets), totalSizeStr, 
+		res.Env.WM, len(res.Assets), len(res.Assets), totalSizeStr, 
 		res.Env.WM, res.Env.DM, res.Env.Bootloader, 
 		totalSizeStr, 
 		formatBreakdown(res, themes, icons, fonts),
@@ -430,6 +425,11 @@ func renderCategory(title string, assets []system.ProtectedAsset, emoji string) 
 		totalSize += a.Size
 	}
 
+	// Sort assets by descending size
+	sort.Slice(assets, func(i, j int) bool {
+		return assets[i].Size > assets[j].Size
+	})
+
 	rows := ""
 	for _, a := range assets {
 		// Identifier format: Name:Type
@@ -450,9 +450,14 @@ func renderCategory(title string, assets []system.ProtectedAsset, emoji string) 
 	return fmt.Sprintf(`
 		<div class="bg-slate-800/30 rounded-2xl border border-white/5 overflow-hidden">
 			<div class="flex items-center justify-between bg-white/5 px-4 py-3">
-				<div class="flex items-center space-x-2">
-					<span class="text-sm">%s</span>
-					<span class="text-xs font-bold uppercase tracking-widest text-slate-400">%s</span>
+				<div class="flex items-center space-x-3 text-slate-400 hover:text-white transition group/header cursor-pointer">
+					<input type="checkbox" checked
+						   class="select-all-category w-4 h-4 rounded bg-slate-800 border-white/20 text-brand-500 focus:ring-brand-500 cursor-pointer"
+						   data-target-category="%s">
+					<label class="flex items-center space-x-2 cursor-pointer">
+						<span class="text-sm">%s</span>
+						<span class="text-xs font-bold uppercase tracking-widest select-none">%s</span>
+					</label>
 				</div>
 				<span class="text-[10px] font-bold text-brand-400 category-total" data-category="%s">%s</span>
 			</div>
@@ -460,7 +465,7 @@ func renderCategory(title string, assets []system.ProtectedAsset, emoji string) 
 				%s
 			</div>
 		</div>
-	`, emoji, title, title, system.FormatSize(totalSize), rows)
+	`, title, emoji, title, title, system.FormatSize(totalSize), rows)
 }
 
 func formatLogs(logs []string) string {

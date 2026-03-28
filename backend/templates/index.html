@@ -67,85 +67,73 @@
     </nav>
 
     <!-- Main Content -->
-    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
-        <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+    <!-- Main Content -->
+    <main class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
+        <div class="space-y-6">
             
             <!-- Hero Action -->
-            <div class="lg:col-span-2 space-y-6">
-                <div class="bg-slate-800/40 rounded-3xl p-8 border border-slate-700/50 glass relative overflow-hidden group">
-                    <div class="absolute top-0 right-0 -mt-10 -mr-10 w-40 h-40 bg-brand-500/10 blur-3xl rounded-full group-hover:bg-brand-500/20 transition-all duration-700"></div>
-                    
-                    <h1 class="text-4xl font-black mb-2 tracking-tight">System Audit</h1>
-                    <p class="text-slate-400 text-lg mb-8 max-w-lg">Identify unnecessary bloat and reclaim your storage with surgical precision.</p>
-                    
-                    <div class="flex flex-wrap gap-4 items-center">
-                        <button hx-post="/api/scan" 
-                                hx-target="#scan-results" 
-                                hx-indicator="#loading-spinner"
-                                class="group/btn relative inline-flex items-center justify-center bg-brand-500 hover:bg-brand-600 text-white font-bold py-4 px-8 rounded-2xl transition-all shadow-xl shadow-brand-500/25 active:scale-[0.98] overflow-hidden">
-                            <span class="relative z-10 flex items-center space-x-2">
-                                <span>Scan System</span>
-                                <svg id="loading-spinner" class="htmx-indicator animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                                </svg>
-                            </span>
-                        </button>
-                        <button class="bg-slate-700/50 hover:bg-slate-700 text-slate-300 font-semibold py-4 px-8 rounded-2xl transition-all border border-slate-600/50">
-                            Dry Run Settings
-                        </button>
-                    </div>
-
-                    <div id="scan-results" class="mt-8 space-y-4">
-                        <!-- Results will be injected here via HTMX -->
-                    </div>
-                </div>
-
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        <div class="bg-slate-800/30 p-8 rounded-3xl border border-slate-700/50 hover:border-brand-500/30 transition-colors group">
-                            <h3 class="text-slate-500 text-xs font-bold uppercase tracking-[0.2em] mb-4 group-hover:text-brand-400 transition-colors">Prunable Storage</h3>
-                            <div class="flex items-baseline space-x-2">
-                                <span id="total-reclaimable" class="text-4xl font-black tabular-nums">--</span>
-                            </div>
-                        </div>
-                        <div class="bg-slate-800/30 p-8 rounded-3xl border border-slate-700/50 hover:border-brand-500/30 transition-colors group text-center md:text-left">
-                            <h3 class="text-slate-500 text-xs font-bold uppercase tracking-[0.2em] mb-4 group-hover:text-brand-400 transition-colors">Protected Assets</h3>
-                            <div class="flex items-center justify-center md:justify-start space-x-3">
-            </div>
-
-         <!-- Main Content (Audit Results) - Full Width -->
-        <div class="max-w-4xl mx-auto space-y-6">
-            <!-- Summary Stats -->
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div class="bg-slate-800/40 backdrop-blur-md rounded-3xl p-6 border border-white/5 shadow-2xl relative overflow-hidden group">
-                    <div class="absolute -right-4 -bottom-4 w-32 h-32 bg-brand-500/10 rounded-full blur-3xl group-hover:bg-brand-500/20 transition-all duration-700"></div>
-                    <p class="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">Total Reclaimable</p>
-                    <div class="flex items-baseline space-x-2">
-                        <span id="total-reclaimable" class="text-4xl font-black text-white tracking-tighter">--</span>
-                    </div>
-                </div>
+            <div class="bg-slate-800/40 rounded-3xl p-8 border border-slate-700/50 glass relative overflow-hidden group">
+                <div class="absolute top-0 right-0 -mt-10 -mr-10 w-40 h-40 bg-brand-500/10 blur-3xl rounded-full group-hover:bg-brand-500/20 transition-all duration-700"></div>
                 
-                <div class="bg-slate-800/40 backdrop-blur-md rounded-3xl p-6 border border-white/5 shadow-2xl relative overflow-hidden group">
-                    <div class="absolute -right-4 -bottom-4 w-32 h-32 bg-blue-500/10 rounded-full blur-3xl group-hover:bg-blue-500/20 transition-all duration-700"></div>
-                    <p class="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">Protected Assets</p>
-                    <div class="flex items-baseline space-x-2">
-                        <span id="protected-assets-count" class="text-4xl font-black text-white tracking-tighter">--</span>
-                        <span class="text-[10px] font-bold text-blue-400 uppercase tracking-widest">Locked</span>
+                <h1 class="text-4xl font-black mb-2 tracking-tight">System Audit</h1>
+                <p class="text-slate-400 text-lg mb-8 max-w-lg">Identify unnecessary bloat and reclaim your storage with surgical precision.</p>
+                
+                <div class="flex flex-wrap gap-4 items-center">
+                    <button hx-post="/api/scan" 
+                            hx-target="#scan-results" 
+                            hx-indicator="#loading-spinner"
+                            class="group/btn relative inline-flex items-center justify-center bg-brand-500 hover:bg-brand-600 text-white font-bold py-4 px-8 rounded-2xl transition-all shadow-xl shadow-brand-500/25 active:scale-[0.98] overflow-hidden">
+                        <span class="relative z-10 flex items-center space-x-2">
+                            <span>Scan System</span>
+                            <svg id="loading-spinner" class="htmx-indicator animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                            </svg>
+                        </span>
+                    </button>
+                    <button class="bg-slate-700/50 hover:bg-slate-700 text-slate-300 font-semibold py-4 px-8 rounded-2xl transition-all border border-slate-600/50">
+                        Dry Run Settings
+                    </button>
+                </div>
+
+                <div id="scan-results" class="mt-8">
+                    <!-- Results console will be injected here via HTMX -->
+                </div>
+            </div>
+
+            <!-- Main Content (Audit Results) - Full Width -->
+            <div class="max-w-4xl mx-auto space-y-6">
+                <!-- Summary Stats -->
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div class="bg-slate-800/40 backdrop-blur-md rounded-3xl p-6 border border-white/5 shadow-2xl relative overflow-hidden group">
+                        <div class="absolute -right-4 -bottom-4 w-32 h-32 bg-brand-500/10 rounded-full blur-3xl group-hover:bg-brand-500/20 transition-all duration-700"></div>
+                        <p class="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">Total Reclaimable</p>
+                        <div class="flex items-baseline space-x-2">
+                            <span id="total-reclaimable" class="text-4xl font-black text-white tracking-tighter">--</span>
+                        </div>
+                    </div>
+                    
+                    <div class="bg-slate-800/40 backdrop-blur-md rounded-3xl p-6 border border-white/5 shadow-2xl relative overflow-hidden group">
+                        <div class="absolute -right-4 -bottom-4 w-32 h-32 bg-blue-500/10 rounded-full blur-3xl group-hover:bg-blue-500/20 transition-all duration-700"></div>
+                        <p class="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">Protected Assets</p>
+                        <div class="flex items-baseline space-x-2">
+                            <span id="protected-assets-count" class="text-4xl font-black text-white tracking-tighter">--</span>
+                            <span class="text-[10px] font-bold text-blue-400 uppercase tracking-widest">Locked</span>
+                        </div>
                     </div>
                 </div>
-            </div>
 
-            <!-- Detailed Results Container -->
-            <div id="prune-results-container" class="min-h-[400px]">
-                <div id="results-skeleton" class="flex flex-col items-center justify-center h-64 border-2 border-dashed border-white/5 rounded-3xl">
-                    <div class="animate-bounce mb-4 text-4xl">🔍</div>
-                    <p class="text-slate-500 font-medium italic">Initiate a scan to audit your system bloat...</p>
+                <!-- Detailed Results Container -->
+                <div id="prune-results-container" class="min-h-[400px]">
+                    <div id="results-skeleton" class="flex flex-col items-center justify-center h-64 border-2 border-dashed border-white/5 rounded-3xl transition-opacity">
+                        <div class="animate-bounce mb-4 text-4xl">🔍</div>
+                        <p class="text-slate-500 font-medium italic">Initiate a scan to audit your system bloat...</p>
+                    </div>
                 </div>
-            </div>
 
-            <div id="prune-status"></div>
+                <div id="prune-status"></div>
+            </div>
         </div>
-     </div>
     </main>
 	<script>
 		function formatBytes(bytes) {
@@ -194,8 +182,33 @@
 
 		// Listen for changes on the form
 		document.addEventListener('change', (e) => {
+			// Handle individual asset toggle
 			if (e.target.name === 'assets') {
 				updateTotals();
+				
+				// Automatically update the state of the "Select All" category checkbox
+				const cat = e.target.getAttribute('data-category');
+				if (cat) {
+					const allItems = document.querySelectorAll(`input[name="assets"][data-category="${cat}"]`);
+					const checkedItems = document.querySelectorAll(`input[name="assets"][data-category="${cat}"]:checked`);
+					const masterCb = document.querySelector(`.select-all-category[data-target-category="${cat}"]`);
+					
+					if (masterCb) {
+						masterCb.checked = (allItems.length > 0 && allItems.length === checkedItems.length);
+						masterCb.indeterminate = (checkedItems.length > 0 && checkedItems.length < allItems.length);
+					}
+				}
+			} 
+			// Handle "Select All" category toggle
+			else if (e.target.classList.contains('select-all-category')) {
+				const cat = e.target.getAttribute('data-target-category');
+				if (cat) {
+					const isChecked = e.target.checked;
+					document.querySelectorAll(`input[name="assets"][data-category="${cat}"]`).forEach(cb => {
+						cb.checked = isChecked;
+					});
+					updateTotals();
+				}
 			}
 		});
 
