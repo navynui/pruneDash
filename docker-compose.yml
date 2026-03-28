@@ -12,6 +12,7 @@ services:
       - /var/log/journal:/host/var/log/journal:rw
       - /home/nui/.cache:/host/home/nui/.cache:rw
       - /home/nui/.config:/host/home/nui/.config:ro
+      - /home/nui/.prune:/host/home/nui/.prune:rw
     environment:
       - NODE_ENV=development
     restart: always
