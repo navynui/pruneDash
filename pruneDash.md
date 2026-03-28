@@ -73,8 +73,9 @@ PruneDash is a modern maintenance dashboard designed to keep Linux systems (init
 - [x] Implement selective pruning with category-based size summaries.
 
 ### Phase 5: Expansion & Polish [/]
-- [/] Refactor to asynchronous Parallel System Audit.
-- [/] Implement per-scan SSE logging for real-time console feedback.
+- [x] Refactor to asynchronous Parallel System Audit.
+- [x] Implement per-scan SSE logging for real-time console feedback.
+- [x] Refine UI with single-column layout and improved Regex font language detection.
 - [ ] Add support for Fedora (DNF) and Ubuntu/Debian (APT) caching logic.
 - [ ] Refine micro-animations and HSL transitions for a premium feel.
 
