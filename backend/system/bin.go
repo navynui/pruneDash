@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -60,10 +61,13 @@ func MoveToPruneBin(selectedNames []string, allAssets []ProtectedAsset, dryRun b
 			} else {
 				LogActivity(fmt.Sprintf("Moving %s to Prune Bin...", asset.Name))
 				if err := os.Rename(asset.Path, binPath); err != nil {
-					// If rename fails (e.g., cross-device), try copy+delete
-					// For now, assume nsenter context handles this or it's same FS
-					LogError(fmt.Sprintf("Failed to move %s: %v", asset.Name, err))
-					continue
+					// If rename fails across docker volumes (EXDEV), fallback to host 'mv'
+					hostAsset := strings.TrimPrefix(asset.Path, "/host")
+					hostBin := strings.TrimPrefix(binPath, "/host")
+					if _, cmdErr := RunHostCommand(fmt.Sprintf("mv %q %q", hostAsset, hostBin)); cmdErr != nil {
+						LogError(fmt.Sprintf("Failed to move %s: %v", asset.Name, cmdErr))
+						continue
+					}
 				}
 				meta.Mappings[binFolderName] = asset.Path
 			}
@@ -111,9 +115,13 @@ func RestoreFromBin(dryRun bool) (int64, error) {
 			// Ensure parent dir exists
 			os.MkdirAll(filepath.Dir(originalPath), 0755)
 			if err := os.Rename(binPath, originalPath); err != nil {
-				fmt.Printf("[ERROR] Restore failed for %s: %v\n", binDir, err)
-				LogError(fmt.Sprintf("Failed to restore %s: %v", originalPath, err))
-				continue
+				hostAsset := strings.TrimPrefix(originalPath, "/host")
+				hostBin := strings.TrimPrefix(binPath, "/host")
+				if _, cmdErr := RunHostCommand(fmt.Sprintf("mv %q %q", hostBin, hostAsset)); cmdErr != nil {
+					fmt.Printf("[ERROR] Restore failed for %s: %v\n", binDir, cmdErr)
+					LogError(fmt.Sprintf("Failed to restore %s: %v", originalPath, cmdErr))
+					continue
+				}
 			}
 			delete(meta.Mappings, binDir)
 			restoredCount++
