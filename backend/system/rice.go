@@ -533,12 +533,14 @@ func groupByNamePrefix(assets *[]ProtectedAsset, files []string) {
 			name = fmt.Sprintf("%s (%s)", prefix, lang)
 		}
 
-		// Use the directory of the first file as the path for pruning if needed
-		// But usually we prune these as files or we don't prune them at all if ambiguous
+		// Join all specific related font files into a pipe-separated path string
+		// This prevents moving the entire font directory when only these specific files are selected.
+		filesStr := strings.Join(groupFiles, "|")
+		
 		*assets = append(*assets, ProtectedAsset{
 			Name:          name,
 			Type:          "font",
-			Path:          filepath.Dir(groupFiles[0]), 
+			Path:          filesStr, 
 			Size:          totalSize,
 			FormattedSize: FormatSize(totalSize),
 		})

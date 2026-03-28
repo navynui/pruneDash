@@ -60,16 +60,29 @@ func MoveToPruneBin(selectedNames []string, allAssets []ProtectedAsset, dryRun b
 				LogActivity(fmt.Sprintf("[DRY RUN] Would move %s to %s", asset.Path, binPath))
 			} else {
 				LogActivity(fmt.Sprintf("Moving %s to Prune Bin...", asset.Name))
-				if err := os.Rename(asset.Path, binPath); err != nil {
-					// If rename fails across docker volumes (EXDEV), fallback to host 'mv'
-					hostAsset := strings.TrimPrefix(asset.Path, "/host")
+				if strings.Contains(asset.Path, "|") {
+					// Handle multiple specific files grouped together (like loose fonts)
+					os.MkdirAll(binPath, 0755)
 					hostBin := strings.TrimPrefix(binPath, "/host")
-					if _, cmdErr := RunHostCommand(fmt.Sprintf("mv %q %q", hostAsset, hostBin)); cmdErr != nil {
-						LogError(fmt.Sprintf("Failed to move %s: %v", asset.Name, cmdErr))
-						continue
+					for _, p := range strings.Split(asset.Path, "|") {
+						hostAsset := strings.TrimPrefix(p, "/host")
+						if _, cmdErr := RunHostCommand(fmt.Sprintf("mv %q %q/", hostAsset, hostBin)); cmdErr != nil {
+							LogError(fmt.Sprintf("Failed to move %s: %v", p, cmdErr))
+						}
 					}
+					meta.Mappings[binFolderName] = asset.Path
+				} else {
+					if err := os.Rename(asset.Path, binPath); err != nil {
+						// If rename fails across docker volumes (EXDEV), fallback to host 'mv'
+						hostAsset := strings.TrimPrefix(asset.Path, "/host")
+						hostBin := strings.TrimPrefix(binPath, "/host")
+						if _, cmdErr := RunHostCommand(fmt.Sprintf("mv %q %q", hostAsset, hostBin)); cmdErr != nil {
+							LogError(fmt.Sprintf("Failed to move %s: %v", asset.Name, cmdErr))
+							continue
+						}
+					}
+					meta.Mappings[binFolderName] = asset.Path
 				}
-				meta.Mappings[binFolderName] = asset.Path
 			}
 			
 			totalSize += asset.Size
@@ -112,15 +125,29 @@ func RestoreFromBin(dryRun bool) (int64, error) {
 			fmt.Printf("[RESTORE] Restoring: %s\n", binDir)
 			fmt.Printf("[RESTORE] Target Path: %s\n", originalPath)
 
-			// Ensure parent dir exists
-			os.MkdirAll(filepath.Dir(originalPath), 0755)
-			if err := os.Rename(binPath, originalPath); err != nil {
-				hostAsset := strings.TrimPrefix(originalPath, "/host")
+			if strings.Contains(originalPath, "|") {
+				// Multiple files inside binPath
 				hostBin := strings.TrimPrefix(binPath, "/host")
-				if _, cmdErr := RunHostCommand(fmt.Sprintf("mv %q %q", hostBin, hostAsset)); cmdErr != nil {
-					fmt.Printf("[ERROR] Restore failed for %s: %v\n", binDir, cmdErr)
-					LogError(fmt.Sprintf("Failed to restore %s: %v", originalPath, cmdErr))
-					continue
+				for _, p := range strings.Split(originalPath, "|") {
+					hostAsset := strings.TrimPrefix(p, "/host")
+					os.MkdirAll(filepath.Dir(p), 0755)
+					hostSubAsset := filepath.Join(hostBin, filepath.Base(p))
+					if _, cmdErr := RunHostCommand(fmt.Sprintf("mv %q %q", hostSubAsset, hostAsset)); cmdErr != nil {
+						LogError(fmt.Sprintf("Failed to restore %s: %v", p, cmdErr))
+					}
+				}
+				os.RemoveAll(binPath) // Cleanup the partial bin container
+			} else {
+				// Ensure parent dir exists
+				os.MkdirAll(filepath.Dir(originalPath), 0755)
+				if err := os.Rename(binPath, originalPath); err != nil {
+					hostAsset := strings.TrimPrefix(originalPath, "/host")
+					hostBin := strings.TrimPrefix(binPath, "/host")
+					if _, cmdErr := RunHostCommand(fmt.Sprintf("mv %q %q", hostBin, hostAsset)); cmdErr != nil {
+						fmt.Printf("[ERROR] Restore failed for %s: %v\n", binDir, cmdErr)
+						LogError(fmt.Sprintf("Failed to restore %s: %v", originalPath, cmdErr))
+						continue
+					}
 				}
 			}
 			delete(meta.Mappings, binDir)
