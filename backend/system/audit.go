@@ -116,6 +116,6 @@ func GetRiceMetrics() (CoreEnvironment, []ProtectedAsset) {
 	ch := make(chan string, 10)
 	go func() { for range ch {} }() // Drain it
 	env := DetectEnvironment(ch)
-	assets := GetProtectedAssets(ch)
+	assets := GetProtectedAssets(ch, env)
 	return env, assets
 }

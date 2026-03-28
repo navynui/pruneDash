@@ -271,10 +271,16 @@ func formatScanResultsHTML(res system.ScanResult) string {
 	fonts := filterAssets(res.PrunableAssets, "font")
 
 	totalSizeStr := system.FormatSize(res.PrunableSize)
+	disabledAttr := ""
+	if res.PrunableSize == 0 {
+		disabledAttr = "disabled"
+	}
 
 	return fmt.Sprintf(`
 		<!-- Swap Env Intel -->
 		<div id="active-wm" hx-swap-oob="innerHTML">%s</div>
+		<div id="total-protected" hx-swap-oob="innerHTML">%d</div>
+		<div id="total-reclaimable" hx-swap-oob="innerHTML">%s</div>
 
 		<div id="intel-section" hx-swap-oob="innerHTML">
 			<div class="grid grid-cols-1 md:grid-cols-3 gap-3 mb-6">
@@ -309,13 +315,31 @@ func formatScanResultsHTML(res system.ScanResult) string {
                          </div>
                     </div>
 
-                    <!-- Asset Categories -->
-                    <div class="space-y-4">
-                        %s
+                    <!-- Protected & Prunable Toggle Tabs? No, just list both -->
+                    <div class="space-y-6">
+                        <!-- Prunable Section -->
+                        <div class="space-y-4">
+                            <h4 class="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Prunable Items</h4>
+                            %s
+                            %s
+                        </div>
+
+                        <!-- Protected Section -->
+                        <div class="pt-4 border-t border-white/5">
+                            <h4 class="text-[10px] font-bold text-brand-400 uppercase tracking-widest px-1 mb-4 flex items-center">
+                                <svg class="w-3 h-3 mr-2 text-brand-400" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clip-rule="evenodd"/></path></svg>
+                                Currently Active (Protected Assets)
+                            </h4>
+                            <div class="bg-slate-900/40 rounded-2xl border border-white/5 p-4">
+                                <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
+                                    %s
+                                </div>
+                            </div>
+                        </div>
                     </div>
 
                     <div id="prune-status" class="mt-8">
-                         <button type="submit" class="w-full bg-brand-500 hover:bg-brand-600 disabled:opacity-50 disabled:cursor-not-allowed text-white font-black py-5 rounded-2xl transition-all shadow-xl shadow-brand-500/30 flex items-center justify-center space-x-3 group">
+                         <button type="submit" %s class="w-full bg-brand-500 hover:bg-brand-600 disabled:opacity-50 disabled:cursor-not-allowed text-white font-black py-5 rounded-2xl transition-all shadow-xl shadow-brand-500/30 flex items-center justify-center space-x-3 group">
                             <span>Execute Cleanup</span>
                             <svg id="prune-spinner" class="htmx-indicator animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                                 <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
@@ -326,7 +350,14 @@ func formatScanResultsHTML(res system.ScanResult) string {
                 </form>
             </div>
 		</div>
-	`, res.Env.WM, res.Env.WM, res.Env.DM, res.Env.Bootloader, totalSizeStr, formatCategorySections(themes, icons, fonts))
+	`, 
+		res.Env.WM, len(res.Assets), totalSizeStr, 
+		res.Env.WM, res.Env.DM, res.Env.Bootloader, 
+		totalSizeStr, 
+		formatCategorySections(themes, icons, fonts),
+		formatOtherSizes(res),
+		formatProtectedList(res.Assets),
+		disabledAttr)
 }
 
 func filterAssets(assets []system.ProtectedAsset, aType string) []system.ProtectedAsset {
@@ -396,4 +427,77 @@ func formatLogs(logs []string) string {
 		res += fmt.Sprintf("<li>%s</li>", log)
 	}
 	return res
+}
+
+func formatOtherSizes(res system.ScanResult) string {
+	items := []struct {
+		name string
+		size int64
+		icon string
+	}{
+		{"Package Cache", res.PacmanMetrics.Reclaim, "📦"},
+		{"System Journals", res.JournalMetrics.Reclaim, "📝"},
+		{"User Cache", res.UserCacheSize, "📂"},
+	}
+
+	html := ""
+	for _, item := range items {
+		if item.size > 0 {
+			html += fmt.Sprintf(`
+				<div class="flex items-center justify-between p-4 bg-slate-800/30 rounded-2xl border border-white/5">
+					<div class="flex items-center space-x-3">
+						<span class="text-xl">%s</span>
+						<span class="text-xs font-bold text-slate-300 uppercase tracking-widest">%s</span>
+					</div>
+					<span class="text-xs font-mono text-brand-400 font-bold">%s</span>
+				</div>
+			`, item.icon, item.name, system.FormatSize(item.size))
+		}
+	}
+	return html
+}
+
+func formatProtectedList(assets []system.ProtectedAsset) string {
+	if len(assets) == 0 {
+		return "<div class='text-[10px] text-slate-600 italic px-2'>No active themes detected.</div>"
+	}
+
+	// Categorize
+	categorized := make(map[string][]system.ProtectedAsset)
+	for _, a := range assets {
+		categorized[a.Type] = append(categorized[a.Type], a)
+	}
+
+	html := ""
+	order := []string{"theme", "icon", "font", "cursor"}
+	names := map[string]string{"theme": "Themes", "icon": "Icons", "font": "Fonts", "cursor": "Cursors"}
+	emojis := map[string]string{"theme": "🎨", "icon": "🖼️", "font": "🔤", "cursor": "🖱️"}
+
+	for _, t := range order {
+		list := categorized[t]
+		if len(list) == 0 {
+			continue
+		}
+		
+		html += fmt.Sprintf(`
+			<div class="space-y-1">
+				<p class="text-[9px] font-bold text-slate-500 uppercase flex items-center mb-1">
+					<span class="mr-1">%s</span> %s
+				</p>
+				<div class="grid grid-cols-1 gap-1">
+		`, emojis[t], names[t])
+		
+		for _, a := range list {
+			html += fmt.Sprintf(`
+				<div class="flex items-center space-x-2 text-[10px] px-2 py-1 rounded-lg hover:bg-white/5 transition group">
+					<span class="font-medium text-slate-300 truncate">%s</span>
+					<span class="text-[8px] text-slate-600 opacity-0 group-hover:opacity-100 transition-opacity truncate">%s</span>
+				</div>
+			`, a.Name, a.Source)
+		}
+		
+		html += `</div></div>`
+	}
+	
+	return html
 }

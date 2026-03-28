@@ -53,15 +53,10 @@ func PerformAsyncScan(logChan chan string) ScanResult {
 	LogToChan(logChan, "--- Starting Parallel System Audit ---")
 	startTime := time.Now()
 
-	// 1. Environment Detection (Parallel)
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		env := DetectEnvironment(logChan)
-		mu.Lock()
-		res.Env = env
-		mu.Unlock()
-	}()
+	// 1. Environment Detection (Serial - first)
+	LogToChan(logChan, "Detecting System Environment...")
+	env := DetectEnvironment(logChan)
+	res.Env = env
 
 	// 2. Pacman Metrics (Parallel)
 	wg.Add(1)
@@ -111,7 +106,7 @@ func PerformAsyncScan(logChan chan string) ScanResult {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		assets := GetProtectedAssets(logChan)
+		assets := GetProtectedAssets(logChan, env)
 		mu.Lock()
 		res.Assets = assets
 		mu.Unlock()
@@ -150,7 +145,6 @@ type ProtectedAsset struct {
 
 // DetectEnvironment returns the detected core environment of the host system.
 func DetectEnvironment(logChan chan string) CoreEnvironment {
-	LogToChan(logChan, "Detecting System Environment...")
 	env := CoreEnvironment{
 		WM:         DetectWM(logChan),
 		DM:         DetectDM(logChan),
@@ -225,20 +219,20 @@ func DetectDM(logChan chan string) string {
 
 // DetectBootloader identifies the active Bootloader.
 func DetectBootloader(logChan chan string) string {
-	LogToChan(logChan, "Probing /host/boot for GRUB configuration...")
+	LogToChan(logChan, "Probing for active bootloader...")
+	
 	// Check for GRUB
 	if _, err := os.Stat("/host/boot/grub/grub.cfg"); err == nil {
 		return "grub"
 	}
 
-	LogToChan(logChan, "Probing EFI paths for rEFInd themes...")
-	// Check for rEFInd
-	out, _ := RunHostCommand("ls /host/boot/EFI/*/refind.conf /host/efi/EFI/*/refind.conf 2>/dev/null")
-	if out != "" {
+	// Check for rEFInd - recursive search on host via nsenter
+	// Search in /boot and /efi up to 3 levels deep
+	out, _ := RunHostCommand("find /boot /efi /boot/efi -maxdepth 4 -name refind.conf 2>/dev/null")
+	if strings.TrimSpace(out) != "" {
 		return "refind"
 	}
 
-	LogToChan(logChan, "Checking for systemd-boot loader entries...")
 	// Check for systemd-boot
 	if _, err := os.Stat("/host/boot/loader/loader.conf"); err == nil {
 		return "systemd-boot"
@@ -248,7 +242,7 @@ func DetectBootloader(logChan chan string) string {
 }
 
 // GetProtectedAssets scans for active system assets.
-func GetProtectedAssets(logChan chan string) []ProtectedAsset {
+func GetProtectedAssets(logChan chan string, env CoreEnvironment) []ProtectedAsset {
 	var assets []ProtectedAsset
 
 	LogToChan(logChan, "Starting Core Asset Detection...")
@@ -258,9 +252,8 @@ func GetProtectedAssets(logChan chan string) []ProtectedAsset {
 	assets = append(assets, ParseGTKSettings("/host/home/nui/.config/gtk-3.0/settings.ini")...)
 	assets = append(assets, ParseGTKSettings("/host/home/nui/.config/gtk-4.0/settings.ini")...)
 
-	// 2. Parse Hyprland Config
-	wm := DetectWM(logChan)
-	if strings.Contains(strings.ToLower(wm), "hyprland") {
+	// 2. Parse WM Config (using pre-detected WM)
+	if strings.Contains(strings.ToLower(env.WM), "hyprland") {
 		LogToChan(logChan, "Detecting Hyprland Configurations...")
 		hyprAssets := ParseHyprlandConfig("/host/home/nui/.config/hypr/hyprland.conf")
 		assets = append(assets, hyprAssets...)
