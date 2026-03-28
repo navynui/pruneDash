@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-var ScanLogs = make(chan string, 100)
+// LogActivity is now internal to each scan via channels
 
 type ScanResult struct {
 	Env            CoreEnvironment
@@ -22,32 +22,42 @@ type ScanResult struct {
 	CompletedAt    time.Time
 }
 
-func LogActivity(msg string) {
-	select {
-	case ScanLogs <- fmt.Sprintf("[%s] %s", time.Now().Format("15:04:05"), msg):
-	default:
-		// Drop log if channel is full
+func LogToChan(ch chan string, msg string) {
+	fmt.Printf("[AUDIT] %s\n", msg)
+	if ch != nil {
+		select {
+		case ch <- fmt.Sprintf("[%s] %s", time.Now().Format("15:04:05"), msg):
+		default:
+		}
 	}
 }
 
+func LogActivity(msg string) {
+	LogToChan(nil, msg)
+}
+
 func LogError(msg string) {
-	LogActivity(fmt.Sprintf("<span class='text-red-500 font-bold'>ERROR: %s</span>", msg))
+	LogToChan(nil, "<span class='text-red-500 font-bold'>ERROR: "+msg+"</span>")
+}
+
+func LogErrorToChan(ch chan string, msg string) {
+	LogToChan(ch, fmt.Sprintf("<span class='text-red-500 font-bold'>ERROR: %s</span>", msg))
 }
 
 // PerformAsyncScan runs all detection and audit tasks in parallel where possible.
-func PerformAsyncScan() ScanResult {
+func PerformAsyncScan(logChan chan string) ScanResult {
 	var res ScanResult
 	var wg sync.WaitGroup
-	var mu sync.Mutex // Protec res fields during parallel writes
+	var mu sync.Mutex // Protect res fields during parallel writes
 
-	LogActivity("--- Starting Parallel System Audit ---")
+	LogToChan(logChan, "--- Starting Parallel System Audit ---")
 	startTime := time.Now()
 
 	// 1. Environment Detection (Parallel)
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		env := DetectEnvironment()
+		env := DetectEnvironment(logChan)
 		mu.Lock()
 		res.Env = env
 		mu.Unlock()
@@ -57,10 +67,10 @@ func PerformAsyncScan() ScanResult {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		LogActivity("Auditing Package Cache (paccache)...")
+		LogToChan(logChan, "Auditing Package Cache (paccache)...")
 		total, reclaim, err := GetPacmanMetrics()
 		if err != nil {
-			LogError("Pacman audit failed: " + err.Error())
+			LogErrorToChan(logChan, "Pacman audit failed: " + err.Error())
 		}
 		mu.Lock()
 		res.PacmanMetrics.Total = total
@@ -72,10 +82,10 @@ func PerformAsyncScan() ScanResult {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		LogActivity("Auditing Systemd Journals (journalctl)...")
+		LogToChan(logChan, "Auditing Systemd Journals (journalctl)...")
 		total, reclaim, err := GetJournalMetrics()
 		if err != nil {
-			LogError("Journal audit failed: " + err.Error())
+			LogErrorToChan(logChan, "Journal audit failed: " + err.Error())
 		}
 		mu.Lock()
 		res.JournalMetrics.Total = total
@@ -87,10 +97,10 @@ func PerformAsyncScan() ScanResult {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		LogActivity("Scanning User Cache (~/.cache)...")
+		LogToChan(logChan, "Scanning User Cache (~/.cache)...")
 		size, err := GetUserCacheSize()
 		if err != nil {
-			LogError("User cache scan failed: " + err.Error())
+			LogErrorToChan(logChan, "User cache scan failed: " + err.Error())
 		}
 		mu.Lock()
 		res.UserCacheSize = size
@@ -98,18 +108,16 @@ func PerformAsyncScan() ScanResult {
 	}()
 
 	// 5. Protected Assets (Parallel)
-	// This captures themes, fonts, icons based on configs
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		assets := GetProtectedAssets()
+		assets := GetProtectedAssets(logChan)
 		mu.Lock()
 		res.Assets = assets
 		mu.Unlock()
 
-		// 5.1 Prunable Assets (Serial to 5, Parallel to others)
-		// Needs protected assets list first
-		prunable, size := GetPrunableAssets(assets)
+		// 5.1 Prunable Assets
+		prunable, size := GetPrunableAssets(logChan, assets)
 		mu.Lock()
 		res.PrunableAssets = prunable
 		res.PrunableSize = size
@@ -118,7 +126,7 @@ func PerformAsyncScan() ScanResult {
 
 	wg.Wait()
 	res.CompletedAt = time.Now()
-	LogActivity(fmt.Sprintf("--- Audit complete in %.2fs ---", time.Since(startTime).Seconds()))
+	LogToChan(logChan, fmt.Sprintf("--- Audit complete in %.2fs ---", time.Since(startTime).Seconds()))
 	
 	return res
 }
@@ -131,43 +139,45 @@ type CoreEnvironment struct {
 }
 
 type ProtectedAsset struct {
-	Name     string `json:"name"`
-	Type     string `json:"type"`     // "theme", "icon", "font", "cursor"
-	Path     string `json:"path"`     // Absolute path on host
-	Source   string `json:"source"`   // Config file where found
-	Priority int    `json:"priority"` // 1=core, 2=app, 3=global
+	Name          string `json:"name"`
+	Type          string `json:"type"`          // "theme", "icon", "font", "cursor"
+	Path          string `json:"path"`          // Absolute path on host
+	Source        string `json:"source"`        // Config file where found
+	Priority      int    `json:"priority"`      // 1=core, 2=app, 3=global
+	Size          int64  `json:"size"`          // Size in bytes
+	FormattedSize string `json:"formattedSize"` // Readable size (e.g., "1.2 MB")
 }
 
 // DetectEnvironment returns the detected core environment of the host system.
-func DetectEnvironment() CoreEnvironment {
-	LogActivity("Detecting System Environment...")
+func DetectEnvironment(logChan chan string) CoreEnvironment {
+	LogToChan(logChan, "Detecting System Environment...")
 	env := CoreEnvironment{
-		WM:         DetectWM(),
-		DM:         DetectDM(),
-		Bootloader: DetectBootloader(),
-		Apps:       DetectApps(),
+		WM:         DetectWM(logChan),
+		DM:         DetectDM(logChan),
+		Bootloader: DetectBootloader(logChan),
+		Apps:       DetectApps(logChan),
 	}
 	
 	if env.WM == "unknown" {
-		LogError("Failed to identify active Window Manager.")
+		LogErrorToChan(logChan, "Failed to identify active Window Manager.")
 	}
 	
-	LogActivity(fmt.Sprintf("Environment: WM=%s, DM=%s, Bootloader=%s, Apps=%d found", env.WM, env.DM, env.Bootloader, len(env.Apps)))
+	LogToChan(logChan, fmt.Sprintf("Environment: WM=%s, DM=%s, Bootloader=%s, Apps=%d found", env.WM, env.DM, env.Bootloader, len(env.Apps)))
 	return env
 }
 
 // DetectWM identifies the active Window Manager or Desktop Environment.
-func DetectWM() string {
-	LogActivity("Checking environment variables (XDG_CURRENT_DESKTOP)...")
+func DetectWM(logChan chan string) string {
+	LogToChan(logChan, "Checking environment variables (XDG_CURRENT_DESKTOP)...")
 	// 1. Check environment variables
 	env, _ := RunHostCommand("printenv XDG_CURRENT_DESKTOP")
 	env = strings.TrimSpace(env)
 	if env != "" {
-		LogActivity("Found active session: " + env)
+		LogToChan(logChan, "Found active session: " + env)
 		return strings.ToLower(env)
 	}
 
-	LogActivity("Environment variables ambiguous. Searching for config files...")
+	LogToChan(logChan, "Environment variables ambiguous. Searching for config files...")
 	// 2. Check for config files if env is ambiguous
 	configs := map[string]string{
 		"hyprland": "/host/home/nui/.config/hypr/hyprland.conf",
@@ -176,9 +186,9 @@ func DetectWM() string {
 	}
 
 	for wm, path := range configs {
-		LogActivity(fmt.Sprintf("Probing for %s config at %s", wm, path))
+		LogToChan(logChan, fmt.Sprintf("Probing for %s config at %s", wm, path))
 		if _, err := os.Stat(path); err == nil {
-			LogActivity(fmt.Sprintf("Detected %s via configuration match.", wm))
+			LogToChan(logChan, fmt.Sprintf("Detected %s via configuration match.", wm))
 			return wm
 		}
 	}
@@ -187,23 +197,23 @@ func DetectWM() string {
 }
 
 // DetectDM identifies the active Display Manager.
-func DetectDM() string {
-	LogActivity("Querying systemd for active display-manager service...")
+func DetectDM(logChan chan string) string {
+	LogToChan(logChan, "Querying systemd for active display-manager service...")
 	// Check active display-manager service
 	out, err := RunHostCommand("systemctl list-units --type=service --state=active | grep -E 'sddm|gdm|lightdm|ly'")
 	if err == nil && out != "" {
-		LogActivity("Parsing active service units...")
+		LogToChan(logChan, "Parsing active service units...")
 		if strings.Contains(out, "sddm") { return "sddm" }
 		if strings.Contains(out, "gdm") { return "gdm" }
 		if strings.Contains(out, "lightdm") { return "lightdm" }
 		if strings.Contains(out, "ly") { return "ly" }
 	}
 
-	LogActivity("Active service unit not found. Checking unit symlinks...")
+	LogToChan(logChan, "Active service unit not found. Checking unit symlinks...")
 	// Fallback: check unit symlink
 	out, err = RunHostCommand("ls -l /etc/systemd/system/display-manager.service")
 	if err == nil {
-		LogActivity("Resolving display-manager.service symlink...")
+		LogToChan(logChan, "Resolving display-manager.service symlink...")
 		if strings.Contains(out, "sddm") { return "sddm" }
 		if strings.Contains(out, "gdm") { return "gdm" }
 		if strings.Contains(out, "lightdm") { return "lightdm" }
@@ -214,21 +224,21 @@ func DetectDM() string {
 }
 
 // DetectBootloader identifies the active Bootloader.
-func DetectBootloader() string {
-	LogActivity("Probing /host/boot for GRUB configuration...")
+func DetectBootloader(logChan chan string) string {
+	LogToChan(logChan, "Probing /host/boot for GRUB configuration...")
 	// Check for GRUB
 	if _, err := os.Stat("/host/boot/grub/grub.cfg"); err == nil {
 		return "grub"
 	}
 
-	LogActivity("Probing EFI paths for rEFInd themes...")
+	LogToChan(logChan, "Probing EFI paths for rEFInd themes...")
 	// Check for rEFInd
 	out, _ := RunHostCommand("ls /host/boot/EFI/*/refind.conf /host/efi/EFI/*/refind.conf 2>/dev/null")
 	if out != "" {
 		return "refind"
 	}
 
-	LogActivity("Checking for systemd-boot loader entries...")
+	LogToChan(logChan, "Checking for systemd-boot loader entries...")
 	// Check for systemd-boot
 	if _, err := os.Stat("/host/boot/loader/loader.conf"); err == nil {
 		return "systemd-boot"
@@ -238,33 +248,38 @@ func DetectBootloader() string {
 }
 
 // GetProtectedAssets scans for active system assets.
-func GetProtectedAssets() []ProtectedAsset {
+func GetProtectedAssets(logChan chan string) []ProtectedAsset {
 	var assets []ProtectedAsset
 
-	LogActivity("Starting Core Asset Detection...")
+	LogToChan(logChan, "Starting Core Asset Detection...")
 
 	// 1. Parse GTK Settings
-	LogActivity("Detecting GTK Settings...")
+	LogToChan(logChan, "Detecting GTK Settings...")
 	assets = append(assets, ParseGTKSettings("/host/home/nui/.config/gtk-3.0/settings.ini")...)
 	assets = append(assets, ParseGTKSettings("/host/home/nui/.config/gtk-4.0/settings.ini")...)
 
 	// 2. Parse Hyprland Config
-	wm := DetectWM()
+	wm := DetectWM(logChan)
 	if strings.Contains(strings.ToLower(wm), "hyprland") {
-		LogActivity("Detecting Hyprland Configurations...")
+		LogToChan(logChan, "Detecting Hyprland Configurations...")
 		hyprAssets := ParseHyprlandConfig("/host/home/nui/.config/hypr/hyprland.conf")
 		assets = append(assets, hyprAssets...)
 	}
 
 	assets = deduplicateAssets(assets)
 
-	// 3. Resolve Paths
-	LogActivity("Resolving Asset Paths on host...")
+	// 3. Resolve Paths and Sizes
+	LogToChan(logChan, "Resolving Asset Paths & Sizes on host...")
 	for i := range assets {
 		assets[i].Path = ResolveAssetPath(assets[i].Name, assets[i].Type)
+		if assets[i].Path != "unknown" && assets[i].Path != "" {
+			size, _ := DirSize(assets[i].Path)
+			assets[i].Size = size
+			assets[i].FormattedSize = FormatSize(size)
+		}
 	}
 
-	LogActivity(fmt.Sprintf("Protection complete: %d assets locked.", len(assets)))
+	LogToChan(logChan, fmt.Sprintf("Protection complete: %d assets locked.", len(assets)))
 	return assets
 }
 
@@ -356,8 +371,8 @@ func ParseHyprlandConfig(path string) []ProtectedAsset {
 }
 
 // DetectApps identifies frequently used and startup apps.
-func DetectApps() []string {
-	LogActivity("Scanning for Startup and Common Apps...")
+func DetectApps(logChan chan string) []string {
+	LogToChan(logChan, "Scanning for Startup and Common Apps...")
 	var apps []string
 
 	// 1. Startup Apps
@@ -380,8 +395,8 @@ func DetectApps() []string {
 }
 
 // GetInstalledAssets lists all theme, icon, and font assets found on the host.
-func GetInstalledAssets() []ProtectedAsset {
-	LogActivity("Scanning host for all installed aesthetic assets...")
+func GetInstalledAssets(logChan chan string) []ProtectedAsset {
+	LogToChan(logChan, "Scanning host for all installed aesthetic assets...")
 	var assets []ProtectedAsset
 
 	types := map[string][]string{
@@ -398,10 +413,14 @@ func GetInstalledAssets() []ProtectedAsset {
 			}
 			for _, f := range files {
 				if f.IsDir() || aType == "font" {
+					fullPath := filepath.Join(path, f.Name())
+					size, _ := DirSize(fullPath)
 					assets = append(assets, ProtectedAsset{
-						Name: f.Name(),
-						Type: aType,
-						Path: filepath.Join(path, f.Name()),
+						Name:          f.Name(),
+						Type:          aType,
+						Path:          fullPath,
+						Size:          size,
+						FormattedSize: FormatSize(size),
 					})
 				}
 			}
@@ -411,9 +430,9 @@ func GetInstalledAssets() []ProtectedAsset {
 }
 
 // GetPrunableAssets identifies assets that are installed but not currently protected/used.
-func GetPrunableAssets(protected []ProtectedAsset) ([]ProtectedAsset, int64) {
-	LogActivity("Calculating prunable asset delta...")
-	installed := GetInstalledAssets()
+func GetPrunableAssets(logChan chan string, protected []ProtectedAsset) ([]ProtectedAsset, int64) {
+	LogToChan(logChan, "Calculating prunable asset delta...")
+	installed := GetInstalledAssets(logChan)
 	
 	protectedMap := make(map[string]bool)
 	for _, p := range protected {
@@ -431,7 +450,7 @@ func GetPrunableAssets(protected []ProtectedAsset) ([]ProtectedAsset, int64) {
 		}
 	}
 
-	LogActivity(fmt.Sprintf("Audit complete: Found %d prunable assets (%s reclaimable).", len(prunable), FormatSize(totalSize)))
+	LogToChan(logChan, fmt.Sprintf("Audit complete: Found %d prunable assets (%s reclaimable).", len(prunable), FormatSize(totalSize)))
 	return prunable, totalSize
 }
 

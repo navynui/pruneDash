@@ -26,9 +26,9 @@ PruneDash is a modern maintenance dashboard designed to keep Linux systems (init
 - **Theme Pruning**: One-click removal of unused fonts, themes, and icon sets.
 
 ### 🛡️ Safety & Undo System (The "Prune Bin")
-- **Non-Destructive Cleanup**: Instead of `rm -rf`, files are staged in a hidden "Prune Bin."
-- **One-Click Restore**: If the system feels unstable, a universal "Undo" button restores the last prune session.
-- **Final Commitment**: A manual "Empty Trash" action permanently frees the storage once stability is verified.
+- **Non-Destructive Cleanup**: Instead of `direct deletion`, files are staged in `/home/nui/.prune/bin/`.
+- **Universal Restore**: If the system feels unstable, a universal "Undo" button restores the last prune session from the metadata map.
+- **Dry Run Mode [Dev Only]**: Backend-only flag to simulate operations without affecting the filesystem.
 
 ### 📊 Premium UI Experience
 - **Real-Time progress**: HTMX or WebSockets powered logs streaming bash output to a terminal-style component.
@@ -42,10 +42,9 @@ PruneDash is a modern maintenance dashboard designed to keep Linux systems (init
 | Component | Technology | Rationale |
 | :--- | :--- | :--- |
 | **Backend** | **Go (Golang)** | Tiny binary footprint, high performance for file operations. |
-| **Frontend** | **Vite + Vue 3** | Reactive, fast, and modern developer experience. |
-| **Logic** | **Bash + Python scripts** | For direct interaction with system-specific tools (paccache, etc.). |
-| **Styling** | **Tailwind CSS** | Flexibility for "Premium" design tokens. |
-| **Deployment** | **Docker (Privileged)** | Isolation while maintaining the ability to clean the host. |
+| **Frontend** | **HTMX + Tailwind CSS** | Hypermedia-driven UI with premium styling and zero JS overhead. |
+| **Logic** | **Bash + Systemd** | For direct interaction with system-specific tools (paccache, journalctl). |
+| **Deployment** | **Docker (Privileged)** | Isolation while maintaining the ability to clean the host via nsenter. |
 
 ---
 
@@ -68,11 +67,14 @@ PruneDash is a modern maintenance dashboard designed to keep Linux systems (init
 - [x] UI: Add "Prune Now" and "Undo" controls.
 - [x] UI: Implement "Prunable Storage" vs "Protected Assets" breakdown for complete transparency.
 
-### Phase 4: Configuration Intel (The "Rice" Protector)
-- [ ] Build the Config Parser (Hyprland, Niri, GTK).
-- [ ] Identify active fonts, themes, and icons to mark as [Locked 🔒].
+### Phase 4: Configuration Intel (The "Rice" Protector) [DONE]
+- [x] Build the Config Parser (Hyprland, Niri, GTK).
+- [x] Identify active fonts, themes, and icons to mark as [Locked 🔒].
+- [x] Implement selective pruning with category-based size summaries.
 
-### Phase 5: Expansion & Polish
+### Phase 5: Expansion & Polish [/]
+- [/] Refactor to asynchronous Parallel System Audit.
+- [/] Implement per-scan SSE logging for real-time console feedback.
 - [ ] Add support for Fedora (DNF) and Ubuntu/Debian (APT) caching logic.
 - [ ] Refine micro-animations and HSL transitions for a premium feel.
 

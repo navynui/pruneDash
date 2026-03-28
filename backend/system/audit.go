@@ -1,19 +1,29 @@
 package system
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strconv"
+	"time"
 )
 
-// RunHostCommand (moved from prune.go for shared use)
+// RunHostCommand executes a command on the host via nsenter with a 5s timeout.
 func RunHostCommand(command string) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
 	// Use privileged execution via nsenter
-	cmd := exec.Command("nsenter", "-t", "1", "-m", "-u", "-n", "-i", "bash", "-c", command)
+	cmd := exec.CommandContext(ctx, "nsenter", "-t", "1", "-m", "-u", "-n", "-i", "bash", "-c", command)
 	output, err := cmd.CombinedOutput()
+	
+	if ctx.Err() == context.DeadlineExceeded {
+		return "", fmt.Errorf("command timed out: %s", command)
+	}
+	
 	return string(output), err
 }
 
@@ -102,7 +112,10 @@ func GetUserCacheSize() (int64, error) {
 
 // GetRiceMetrics returns the detected environment and protected assets.
 func GetRiceMetrics() (CoreEnvironment, []ProtectedAsset) {
-	env := DetectEnvironment()
-	assets := GetProtectedAssets()
+	// Create a temporary channel for logs if we trigger this out-of-scan
+	ch := make(chan string, 10)
+	go func() { for range ch {} }() // Drain it
+	env := DetectEnvironment(ch)
+	assets := GetProtectedAssets(ch)
 	return env, assets
 }
