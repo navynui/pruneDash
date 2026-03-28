@@ -4,29 +4,38 @@ import (
 	"os"
 )
 
-// PurgeCaches executes paccache and journalctl vacuum
-func PurgeCaches() ([]string, error) {
+// PurgeCachesSelective executes cleanup only for selected categories
+func PurgeCachesSelective(doPacman, doJournal bool) ([]string, error) {
 	var logs []string
 
-	// 1. Pacman Cache (Keep 2)
-	out1, err := RunHostCommand("paccache -r -k 2")
-	if err == nil {
-		logs = append(logs, "Pacman Cache: "+out1)
+	if doPacman {
+		// 1. Pacman Cache (Keep 2)
+		out1, err := RunHostCommand("paccache -r -k 2")
+		if err == nil {
+			logs = append(logs, "Pacman Cache: "+out1)
+		}
+
+		// 2. Pacman Uninstalled (Remove all)
+		out2, err := RunHostCommand("paccache -ruk 0")
+		if err == nil {
+			logs = append(logs, "Pacman Uninstalled: "+out2)
+		}
 	}
 
-	// 2. Pacman Uninstalled (Remove all)
-	out2, err := RunHostCommand("paccache -ruk 0")
-	if err == nil {
-		logs = append(logs, "Pacman Uninstalled: "+out2)
-	}
-
-	// 3. Journal Vacuum (50M)
-	out3, err := RunHostCommand("journalctl --vacuum-size=50M")
-	if err == nil {
-		logs = append(logs, "Journal Vacuum: "+out3)
+	if doJournal {
+		// 3. Journal Vacuum (50M)
+		out3, err := RunHostCommand("journalctl --vacuum-size=50M")
+		if err == nil {
+			logs = append(logs, "Journal Vacuum: "+out3)
+		}
 	}
 
 	return logs, nil
+}
+
+// PurgeCaches executes all cleanup tasks (legacy helper)
+func PurgeCaches() ([]string, error) {
+	return PurgeCachesSelective(true, true)
 }
 
 // ClearUserCache deletes thumbnails and shader caches

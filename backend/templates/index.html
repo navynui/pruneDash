@@ -111,65 +111,100 @@
                         <div class="bg-slate-800/30 p-8 rounded-3xl border border-slate-700/50 hover:border-brand-500/30 transition-colors group text-center md:text-left">
                             <h3 class="text-slate-500 text-xs font-bold uppercase tracking-[0.2em] mb-4 group-hover:text-brand-400 transition-colors">Protected Assets</h3>
                             <div class="flex items-center justify-center md:justify-start space-x-3">
-                                <span id="total-protected" class="text-2xl font-black">--</span>
-                                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-brand-500/10 text-brand-400 border border-brand-500/20">
-                                    🔒 LOCKED
-                                </span>
-                            </div>
-                        </div>
-                    </div>
             </div>
 
-            <!-- Sidebar / Info -->
-            <div class="space-y-6">
-                <div class="bg-slate-800/40 rounded-3xl p-6 border border-slate-700/50 glass">
-                    <h2 class="text-xl font-bold mb-6 flex items-center space-x-2">
-                        <span class="w-1.5 h-6 bg-brand-500 rounded-full"></span>
-                        <span>Core Targets</span>
-                    </h2>
-                    <div class="space-y-3">
-                        <div class="flex items-center justify-between p-4 rounded-2xl bg-slate-700/20 border border-slate-700/50 hover:bg-slate-700/40 transition group cursor-pointer">
-                            <div class="flex items-center space-x-4">
-                                <span class="text-2xl opacity-70 group-hover:scale-110 transition-transform">📦</span>
-                                <div>
-                                    <p class="font-bold text-sm">Package Cache</p>
-                                    <p class="text-xs text-slate-500 italic">paccache integration</p>
-                                </div>
-                            </div>
-                            <input type="checkbox" checked class="w-5 h-5 rounded-md border-slate-700 bg-slate-800 text-brand-500 focus:ring-brand-500">
-                        </div>
-                        <div class="flex items-center justify-between p-4 rounded-2xl bg-slate-700/20 border border-slate-700/50 hover:bg-slate-700/40 transition group cursor-pointer">
-                            <div class="flex items-center space-x-4">
-                                <span class="text-2xl opacity-70 group-hover:scale-110 transition-transform">📝</span>
-                                <div>
-                                    <p class="font-bold text-sm">System Journals</p>
-                                    <p class="text-xs text-slate-500 italic">systemd vacuum</p>
-                                </div>
-                            </div>
-                            <input type="checkbox" checked class="w-5 h-5 rounded-md border-slate-700 bg-slate-800 text-brand-500 focus:ring-brand-500">
-                        </div>
-                        <div class="flex items-center justify-between p-4 rounded-2xl bg-slate-700/20 border border-slate-700/50 hover:bg-slate-700/40 transition group cursor-pointer">
-                            <div class="flex items-center space-x-4">
-                                <span class="text-2xl opacity-70 group-hover:scale-110 transition-transform">🎨</span>
-                                <div>
-                                    <p class="font-bold text-sm">Theme Assets</p>
-                                    <p class="text-xs text-slate-500 italic">unused icons/fonts</p>
-                                </div>
-                            </div>
-                            <input type="checkbox" checked class="w-5 h-5 rounded-md border-slate-700 bg-slate-800 text-brand-500 focus:ring-brand-500">
-                        </div>
+         <!-- Main Content (Audit Results) - Full Width -->
+        <div class="max-w-4xl mx-auto space-y-6">
+            <!-- Summary Stats -->
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div class="bg-slate-800/40 backdrop-blur-md rounded-3xl p-6 border border-white/5 shadow-2xl relative overflow-hidden group">
+                    <div class="absolute -right-4 -bottom-4 w-32 h-32 bg-brand-500/10 rounded-full blur-3xl group-hover:bg-brand-500/20 transition-all duration-700"></div>
+                    <p class="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">Total Reclaimable</p>
+                    <div class="flex items-baseline space-x-2">
+                        <span id="total-reclaimable" class="text-4xl font-black text-white tracking-tighter">--</span>
                     </div>
                 </div>
-
-                <!-- Footer Tip -->
-                <div class="p-6 rounded-3xl bg-brand-500/5 border border-brand-500/10">
-                    <p class="text-xs leading-relaxed text-slate-500">
-                        <span class="font-bold text-brand-400">Pro Tip:</span> PruneDash scans your active window manager config to ensure yours themes stay protected.
-                    </p>
+                
+                <div class="bg-slate-800/40 backdrop-blur-md rounded-3xl p-6 border border-white/5 shadow-2xl relative overflow-hidden group">
+                    <div class="absolute -right-4 -bottom-4 w-32 h-32 bg-blue-500/10 rounded-full blur-3xl group-hover:bg-blue-500/20 transition-all duration-700"></div>
+                    <p class="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">Protected Assets</p>
+                    <div class="flex items-baseline space-x-2">
+                        <span id="protected-assets-count" class="text-4xl font-black text-white tracking-tighter">--</span>
+                        <span class="text-[10px] font-bold text-blue-400 uppercase tracking-widest">Locked</span>
+                    </div>
                 </div>
             </div>
 
+            <!-- Detailed Results Container -->
+            <div id="prune-results-container" class="min-h-[400px]">
+                <div id="results-skeleton" class="flex flex-col items-center justify-center h-64 border-2 border-dashed border-white/5 rounded-3xl">
+                    <div class="animate-bounce mb-4 text-4xl">🔍</div>
+                    <p class="text-slate-500 font-medium italic">Initiate a scan to audit your system bloat...</p>
+                </div>
+            </div>
+
+            <div id="prune-status"></div>
         </div>
+     </div>
     </main>
+	<script>
+		function formatBytes(bytes) {
+			if (bytes === 0) return '0 B';
+			const k = 1024;
+			const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+			const i = Math.floor(Math.log(bytes) / Math.log(k));
+			return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+		}
+
+		function updateTotals() {
+			let total = 0;
+			const categories = {};
+			
+			// Global selection
+			document.querySelectorAll('input[name="assets"]:checked').forEach(cb => {
+				const size = parseInt(cb.getAttribute('data-size') || 0);
+				total += size;
+				
+				const cat = cb.getAttribute('data-category');
+				if (cat) {
+					categories[cat] = (categories[cat] || 0) + size;
+				}
+			});
+
+			// Update Global Displays
+			const totalStr = formatBytes(total);
+			const totalElements = ['#current-selection-size', '#total-reclaimable'];
+			totalElements.forEach(selector => {
+				const el = document.querySelector(selector);
+				if (el) el.innerText = totalStr;
+			});
+
+			// Update Category Displays
+			document.querySelectorAll('.category-total').forEach(el => {
+				const cat = el.getAttribute('data-category');
+				el.innerText = formatBytes(categories[cat] || 0);
+			});
+
+			// Update Button State
+			const btn = document.querySelector('#prune-form button[type="submit"]');
+			if (btn) {
+				btn.disabled = (total === 0);
+			}
+		}
+
+		// Listen for changes on the form
+		document.addEventListener('change', (e) => {
+			if (e.target.name === 'assets') {
+				updateTotals();
+			}
+		});
+
+		// Also handle HTMX swaps - re-init totals after scan results load
+		document.addEventListener('htmx:afterSwap', (e) => {
+			if (e.detail.target.id === 'results-skeleton' || e.detail.target.id === 'prune-results-container') {
+				updateTotals();
+			}
+		});
+	</script>
 </body>
 </html>

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync" // Added sync for parallel tasks
 	"time"
@@ -259,6 +260,15 @@ func GetProtectedAssets(logChan chan string, env CoreEnvironment) []ProtectedAss
 		assets = append(assets, hyprAssets...)
 	}
 
+	// 3. Parse DM (SDDM) Config
+	if env.DM == "sddm" {
+		LogToChan(logChan, "Detecting SDDM Login Theme...")
+		theme := ParseSDDMConfig(logChan)
+		if theme != "" {
+			assets = append(assets, ProtectedAsset{Name: theme, Type: "theme", Source: "SDDM Config", Priority: 1})
+		}
+	}
+
 	assets = deduplicateAssets(assets)
 
 	// 3. Resolve Paths and Sizes
@@ -284,7 +294,12 @@ func ResolveAssetPath(name string, assetType string) string {
 	var searchPaths []string
 	switch assetType {
 	case "theme":
-		searchPaths = []string{"/host/usr/share/themes", "/host/home/nui/.local/share/themes", "/host/home/nui/.themes"}
+		searchPaths = []string{
+			"/host/usr/share/themes", 
+			"/host/home/nui/.local/share/themes", 
+			"/host/home/nui/.themes",
+			"/host/usr/share/sddm/themes",
+		}
 	case "icon", "cursor":
 		searchPaths = []string{"/host/usr/share/icons", "/host/home/nui/.local/share/icons", "/host/home/nui/.icons"}
 	case "font":
@@ -393,19 +408,29 @@ func GetInstalledAssets(logChan chan string) []ProtectedAsset {
 	var assets []ProtectedAsset
 
 	types := map[string][]string{
-		"theme": {"/host/usr/share/themes", "/host/home/nui/.local/share/themes", "/host/home/nui/.themes"},
+		"theme": {
+			"/host/usr/share/themes", 
+			"/host/home/nui/.local/share/themes", 
+			"/host/home/nui/.themes",
+			"/host/usr/share/sddm/themes",
+		},
 		"icon":  {"/host/usr/share/icons", "/host/home/nui/.local/share/icons", "/host/home/nui/.icons"},
 		"font":  {"/host/usr/share/fonts", "/host/home/nui/.local/share/fonts", "/host/home/nui/.fonts"},
 	}
 
 	for aType, paths := range types {
 		for _, path := range paths {
+			if aType == "font" {
+				assets = append(assets, scanFontsRecursive(path)...)
+				continue
+			}
+			
 			files, err := os.ReadDir(path)
 			if err != nil {
 				continue
 			}
 			for _, f := range files {
-				if f.IsDir() || aType == "font" {
+				if f.IsDir() {
 					fullPath := filepath.Join(path, f.Name())
 					size, _ := DirSize(fullPath)
 					assets = append(assets, ProtectedAsset{
@@ -420,6 +445,104 @@ func GetInstalledAssets(logChan chan string) []ProtectedAsset {
 		}
 	}
 	return assets
+}
+
+// scanFontsRecursive groups fonts by directory/family name
+func scanFontsRecursive(root string) []ProtectedAsset {
+	var assets []ProtectedAsset
+	
+	// Collect all readable font files
+	filePrefixes := make(map[string][]string) // path -> files
+	filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+		if err != nil || info.IsDir() {
+			return nil
+		}
+		
+		ext := strings.ToLower(filepath.Ext(path))
+		if ext == ".ttf" || ext == ".otf" || ext == ".woff" || ext == ".woff2" {
+			dir := filepath.Dir(path)
+			filePrefixes[dir] = append(filePrefixes[dir], path)
+		}
+		return nil
+	})
+
+	for dir, files := range filePrefixes {
+		if len(files) == 0 {
+			continue
+		}
+
+		// Heuristic: If many files in one folder, treat the folder as the group
+		// Otherwise, if files share a prefix, group by prefix.
+		
+		rel, _ := filepath.Rel(root, dir)
+		groupName := filepath.Base(dir)
+		if rel == "." || groupName == "" || groupName == "fonts" {
+			// Files are loose in root, group by name prefix
+			groupByNamePrefix(&assets, files)
+		} else {
+			// Folder-based grouping (best for most packages like "noto-cjk")
+			var totalSize int64
+			for _, f := range files {
+				info, _ := os.Stat(f)
+				totalSize += info.Size()
+			}
+			
+			lang := detectLang(groupName + " " + files[0])
+			name := groupName
+			if lang != "" {
+				name = fmt.Sprintf("%s (%s)", groupName, lang)
+			}
+
+			assets = append(assets, ProtectedAsset{
+				Name:          name,
+				Type:          "font",
+				Path:          dir,
+				Size:          totalSize,
+				FormattedSize: FormatSize(totalSize),
+				Source:        "System Package / Folder",
+			})
+		}
+	}
+
+	return assets
+}
+
+func groupByNamePrefix(assets *[]ProtectedAsset, files []string) {
+	groups := make(map[string][]string)
+	for _, f := range files {
+		base := filepath.Base(f)
+		prefix := base
+		if idx := strings.Index(base, "-"); idx > 0 {
+			prefix = base[:idx]
+		} else if idx := strings.Index(base, "_"); idx > 0 {
+			prefix = base[:idx]
+		}
+		groups[prefix] = append(groups[prefix], f)
+	}
+
+	for prefix, groupFiles := range groups {
+		var totalSize int64
+		for _, f := range groupFiles {
+			info, _ := os.Stat(f)
+			totalSize += info.Size()
+		}
+		
+		lang := detectLang(prefix + " " + groupFiles[0])
+		name := prefix
+		if lang != "" {
+			name = fmt.Sprintf("%s (%s)", prefix, lang)
+		}
+
+		// Use the directory of the first file as the path for pruning if needed
+		// But usually we prune these as files or we don't prune them at all if ambiguous
+		*assets = append(*assets, ProtectedAsset{
+			Name:          name,
+			Type:          "font",
+			Path:          filepath.Dir(groupFiles[0]), 
+			Size:          totalSize,
+			FormattedSize: FormatSize(totalSize),
+		})
+	}
 }
 
 // GetPrunableAssets identifies assets that are installed but not currently protected/used.
@@ -445,6 +568,45 @@ func GetPrunableAssets(logChan chan string, protected []ProtectedAsset) ([]Prote
 
 	LogToChan(logChan, fmt.Sprintf("Audit complete: Found %d prunable assets (%s reclaimable).", len(prunable), FormatSize(totalSize)))
 	return prunable, totalSize
+}
+
+var (
+	reThai  = regexp.MustCompile(`(?i)\b(TH|THAI)\b|^TH\s`)
+	reKorea = regexp.MustCompile(`(?i)\b(KOR|KR|KOREAN)\b`)
+	reJapan = regexp.MustCompile(`(?i)\b(JPN|JP|JAPANESE)\b`)
+	reChina = regexp.MustCompile(`(?i)\b(CHI|CN|SC|CHINESE|TC|HK|TW)\b`)
+	reCJK   = regexp.MustCompile(`(?i)\bCJK\b`)
+	reArab  = regexp.MustCompile(`(?i)\b(AR|ARAB|ARABIC)\b`)
+	reThaiN = regexp.MustCompile(`(?i)\bTH\b`)
+)
+
+func detectLang(input string) string {
+	if reThai.MatchString(input) {
+		return "Thai"
+	}
+	if reJapan.MatchString(input) {
+		return "Japanese"
+	}
+	if reKorea.MatchString(input) {
+		return "Korean"
+	}
+	if reChina.MatchString(input) {
+		return "Chinese"
+	}
+	if reCJK.MatchString(input) {
+		return "East Asian"
+	}
+	if reArab.MatchString(input) {
+		return "Arabic"
+	}
+	
+	// Fallback for common patterns
+	u := strings.ToUpper(input)
+	if strings.Contains(u, "THAI") { return "Thai" }
+	if strings.Contains(u, "ARABIC") { return "Arabic" }
+	if strings.Contains(u, "CJK") { return "East Asian" }
+	
+	return ""
 }
 
 func extractValue(line string) string {
@@ -480,5 +642,38 @@ func deduplicateStrings(input []string) []string {
 		}
 	}
 	return result
+}
+
+func ParseSDDMConfig(logChan chan string) string {
+	// SDDM may have config in /etc/sddm.conf or /etc/sddm.conf.d/*.conf
+	paths := []string{"/host/etc/sddm.conf"}
+	
+	files, _ := os.ReadDir("/host/etc/sddm.conf.d")
+	for _, f := range files {
+		if strings.HasSuffix(f.Name(), ".conf") {
+			paths = append(paths, filepath.Join("/host/etc/sddm.conf.d", f.Name()))
+		}
+	}
+
+	for _, p := range paths {
+		content, err := os.ReadFile(p)
+		if err != nil {
+			continue
+		}
+		lines := strings.Split(string(content), "\n")
+		for _, line := range lines {
+			line = strings.TrimSpace(line)
+			if strings.HasPrefix(line, "Current=") || strings.HasPrefix(line, "Theme=") {
+				parts := strings.Split(line, "=")
+				if len(parts) >= 2 {
+					theme := strings.TrimSpace(parts[1])
+					if theme != "" {
+						return theme
+					}
+				}
+			}
+		}
+	}
+	return ""
 }
 

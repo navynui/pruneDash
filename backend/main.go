@@ -191,15 +191,33 @@ func main() {
 			}
 		}
 
-		// 1. Move to Prune Bin
+		// 1. Move to Prune Bin (Themes, Icons, Fonts)
 		moved, size, err := system.MoveToPruneBin(assetIds, LastScanResult.PrunableAssets, DryRunMode)
 		if err != nil {
 			return c.SendString(fmt.Sprintf("<div class='text-red-500'>Error moving to bin: %v</div>", err))
 		}
 
-		// 2. Clear Caches & Logs
-		purgeLogs, _ := system.PurgeCaches()
-		system.ClearUserCache()
+		// 2. Selectively Clear Caches & Logs
+		var purgeLogs []string
+		
+		// Check for system items
+		doPacman := false
+		doJournal := false
+		doUserCache := false
+		for _, id := range assetIds {
+			if id == "Package Cache:system" { doPacman = true }
+			if id == "System Journals:system" { doJournal = true }
+			if id == "User Cache:system" { doUserCache = true }
+		}
+
+		if doPacman || doJournal {
+			logs, _ := system.PurgeCachesSelective(doPacman, doJournal)
+			purgeLogs = append(purgeLogs, logs...)
+		}
+		if doUserCache {
+			system.ClearUserCache()
+			purgeLogs = append(purgeLogs, "User cache cleared successfully.")
+		}
 
 		prefix := ""
 		if DryRunMode {
@@ -280,6 +298,7 @@ func formatScanResultsHTML(res system.ScanResult) string {
 		<!-- Swap Env Intel -->
 		<div id="active-wm" hx-swap-oob="innerHTML">%s</div>
 		<div id="total-protected" hx-swap-oob="innerHTML">%d</div>
+		<div id="protected-assets-count" hx-swap-oob="innerHTML">%d</div>
 		<div id="total-reclaimable" hx-swap-oob="innerHTML">%s</div>
 
 		<div id="intel-section" hx-swap-oob="innerHTML">
@@ -310,9 +329,18 @@ func formatScanResultsHTML(res system.ScanResult) string {
                              <div class="text-7xl font-black italic select-none">RECLAIM</div>
                          </div>
                          <div class="relative z-10">
-                            <h3 id="current-selection-size" class="text-5xl font-black tabular-nums transition-all">%s</h3>
-                            <p class="text-xs font-bold text-brand-400 uppercase tracking-[0.3em]">Total Prunable Assets</p>
+                             <h3 id="current-selection-size" class="text-5xl font-black tabular-nums transition-all">%s</h3>
+                            <div class="flex items-center space-x-2 mt-1">
+                                <p class="text-xs font-bold text-brand-400 uppercase tracking-[0.3em]">Total Prunable Assets</p>
+                                <span class="w-1 h-1 bg-white/20 rounded-full"></span>
+                                <p class="text-[10px] font-bold text-slate-500 uppercase tracking-widest">%s</p>
+                            </div>
                          </div>
+                    </div>
+
+                    <!-- Core Targets (System Items) Horizontal Grid -->
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mb-8">
+                        %s
                     </div>
 
                     <!-- Protected & Prunable Toggle Tabs? No, just list both -->
@@ -347,17 +375,29 @@ func formatScanResultsHTML(res system.ScanResult) string {
                             </svg>
                          </button>
                     </div>
-                </form>
+				</form>
             </div>
 		</div>
 	`, 
-		res.Env.WM, len(res.Assets), totalSizeStr, 
+		len(res.Assets), len(res.Assets), totalSizeStr, 
 		res.Env.WM, res.Env.DM, res.Env.Bootloader, 
 		totalSizeStr, 
-		formatCategorySections(themes, icons, fonts),
+		formatBreakdown(res, themes, icons, fonts),
 		formatOtherSizes(res),
+		formatCategorySections(themes, icons, fonts),
 		formatProtectedList(res.Assets),
 		disabledAttr)
+}
+
+func formatBreakdown(res system.ScanResult, themes, icons, fonts []system.ProtectedAsset) string {
+	var t, i, f int64
+	for _, a := range themes { t += a.Size }
+	for _, a := range icons { i += a.Size }
+	for _, a := range fonts { f += a.Size }
+	s := res.PacmanMetrics.Reclaim + res.JournalMetrics.Reclaim + res.UserCacheSize
+	
+	return fmt.Sprintf("Themes: %s • Icons: %s • Fonts: %s • System: %s", 
+		system.FormatSize(t), system.FormatSize(i), system.FormatSize(f), system.FormatSize(s))
 }
 
 func filterAssets(assets []system.ProtectedAsset, aType string) []system.ProtectedAsset {
@@ -397,12 +437,14 @@ func renderCategory(title string, assets []system.ProtectedAsset, emoji string) 
 		rows += fmt.Sprintf(`
 			<div class="flex items-center justify-between p-3 border-b border-white/5 hover:bg-white/5 transition group">
 				<div class="flex items-center space-x-3">
-					<input type="checkbox" name="assets" value="%s" checked class="w-4 h-4 rounded bg-slate-900 border-white/10 text-brand-500 focus:ring-brand-500">
+					<input type="checkbox" name="assets" value="%s" checked 
+						   data-size="%d" data-category="%s"
+						   class="w-4 h-4 rounded bg-slate-900 border-white/10 text-brand-500 focus:ring-brand-500">
 					<span class="text-xs font-medium text-slate-300">%s</span>
 				</div>
 				<span class="text-[10px] font-mono text-slate-500">%s</span>
 			</div>
-		`, id, a.Name, a.FormattedSize)
+		`, id, a.Size, title, a.Name, a.FormattedSize)
 	}
 
 	return fmt.Sprintf(`
@@ -412,13 +454,13 @@ func renderCategory(title string, assets []system.ProtectedAsset, emoji string) 
 					<span class="text-sm">%s</span>
 					<span class="text-xs font-bold uppercase tracking-widest text-slate-400">%s</span>
 				</div>
-				<span class="text-[10px] font-bold text-brand-400 opacity-60">%s</span>
+				<span class="text-[10px] font-bold text-brand-400 category-total" data-category="%s">%s</span>
 			</div>
 			<div class="max-h-48 overflow-y-auto custom-scrollbar">
 				%s
 			</div>
 		</div>
-	`, emoji, title, system.FormatSize(totalSize), rows)
+	`, emoji, title, title, system.FormatSize(totalSize), rows)
 }
 
 func formatLogs(logs []string) string {
@@ -446,12 +488,15 @@ func formatOtherSizes(res system.ScanResult) string {
 			html += fmt.Sprintf(`
 				<div class="flex items-center justify-between p-4 bg-slate-800/30 rounded-2xl border border-white/5">
 					<div class="flex items-center space-x-3">
+						<input type="checkbox" name="assets" value="%s:system" checked 
+						   data-size="%d" data-category="system"
+						   class="w-4 h-4 rounded bg-slate-900 border-white/10 text-brand-500 focus:ring-brand-500">
 						<span class="text-xl">%s</span>
 						<span class="text-xs font-bold text-slate-300 uppercase tracking-widest">%s</span>
 					</div>
-					<span class="text-xs font-mono text-brand-400 font-bold">%s</span>
+					<span class="text-[10px] font-mono text-brand-400 font-bold">%s</span>
 				</div>
-			`, item.icon, item.name, system.FormatSize(item.size))
+			`, item.name, item.size, item.icon, item.name, system.FormatSize(item.size))
 		}
 	}
 	return html

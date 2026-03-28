@@ -13,6 +13,18 @@ services:
       - /home/nui/.cache:/host/home/nui/.cache:rw
       - /home/nui/.config:/host/home/nui/.config:ro
       - /home/nui/.prune:/host/home/nui/.prune:rw
+      - /home/nui/.local/share/themes:/host/home/nui/.local/share/themes:ro
+      - /home/nui/.local/share/icons:/host/home/nui/.local/share/icons:ro
+      - /home/nui/.local/share/fonts:/host/home/nui/.local/share/fonts:ro
+      - /home/nui/.themes:/host/home/nui/.themes:ro
+      - /home/nui/.icons:/host/home/nui/.icons:ro
+      - /home/nui/.fonts:/host/home/nui/.fonts:ro
+      - /usr/share/themes:/host/usr/share/themes:ro
+      - /usr/share/icons:/host/usr/share/icons:ro
+      - /usr/share/fonts:/host/usr/share/fonts:ro
+      - /usr/share/sddm/themes:/host/usr/share/sddm/themes:ro
+      - /etc/sddm.conf:/host/etc/sddm.conf:ro
+      - /etc/sddm.conf.d:/host/etc/sddm.conf.d:ro
     environment:
       - NODE_ENV=development
     restart: always
