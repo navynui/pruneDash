@@ -5,7 +5,6 @@ import (
 	"log"
 	"net/http"
 	"sort"
-	"strings"
 	"sync"
 	"time"
 
@@ -107,8 +106,8 @@ func main() {
 				}
 			sendResult:
 				LastScanResult = res
-				html := formatScanResultsHTML(res)
-				fmt.Fprintf(w, "event: result\ndata: %s\n\n", strings.ReplaceAll(html, "\n", ""))
+				// Send a lightweight done signal — client will fetch results via GET /api/scan/result
+				fmt.Fprintf(w, "event: done\ndata: ok\n\n")
 				if f, ok := w.(http.Flusher); ok {
 					f.Flush()
 				}
@@ -126,6 +125,10 @@ func main() {
 	}))
 
 
+	// API: Scan Result (fetched by client after receiving 'done' SSE signal)
+	app.Get("/api/scan/result", func(c *fiber.Ctx) error {
+		return c.SendString(formatScanResultsHTML(LastScanResult))
+	})
 
 	// API: Scan (Async trigger)
 	app.Post("/api/scan", func(c *fiber.Ctx) error {
@@ -145,11 +148,11 @@ func main() {
 			resChan <- res
 		}()
 
-		// Return initial Loading UI with SSE console targeting the scanID
+		// Return initial Loading UI with native EventSource (no htmx SSE extension)
 		return c.SendString(fmt.Sprintf(`
 			<div id="scan-console-wrapper" class="mt-4 animate-in fade-in slide-in-from-top-4 duration-500">
-				
-				<!-- Activity Console (SSE Listener) -->
+
+				<!-- Activity Console -->
 				<div class="mb-4 bg-black/40 rounded-xl border border-white/5 overflow-hidden shadow-inner">
 					<div class="flex items-center justify-between px-3 py-2 border-b border-white/5">
 						<div class="flex items-center space-x-2">
@@ -158,30 +161,59 @@ func main() {
 						</div>
 						<button id="log-toggle-btn"
 							onclick="(function(){
-								var log = document.getElementById('activity-log-body');
+								var b = document.getElementById('activity-log-body');
 								var btn = document.getElementById('log-toggle-btn');
-								if (log.style.display === 'none') { log.style.display = ''; btn.textContent = 'Hide'; }
-								else { log.style.display = 'none'; btn.textContent = 'View Logs'; }
+								if (b.style.display === 'none') { b.style.display = ''; btn.textContent = 'Hide'; }
+								else { b.style.display = 'none'; btn.textContent = 'View Logs'; }
 							})()"
 							class="text-[9px] font-bold text-brand-400 hover:text-brand-300 transition uppercase tracking-widest">Hide</button>
 					</div>
 					<div id="activity-log-body" class="p-3">
-						<div hx-ext="sse" sse-connect="/api/scan/logs?id=%s" class="flex flex-col-reverse">
-							<div id="activity-log" sse-swap="log" hx-swap="beforeend"
-								 class="h-48 overflow-y-auto scrollbar-hide flex flex-col-reverse italic">
-								<div class="text-[10px] text-slate-500 opacity-50">Handshaking with system probes...</div>
-							</div>
-							<!-- Final Result Listener -->
-							<div sse-swap="result" hx-swap="innerHTML" hx-target="#results-skeleton" class="hidden"></div>
+						<div id="activity-log" class="h-48 overflow-y-auto scrollbar-hide flex flex-col-reverse italic">
+							<div class="text-[10px] text-slate-500 opacity-50">Handshaking with system probes...</div>
 						</div>
 					</div>
 				</div>
 
-				<!-- Intel Skeleton (to be swapped OOB) -->
+				<!-- Intel Skeleton (updated via OOB from /api/scan/result) -->
 				<div id="intel-section" class="mb-6 bg-slate-800/20 rounded-2xl p-5 border border-white/5 border-dashed animate-pulse text-center">
 					<p class="text-[10px] text-slate-500 uppercase tracking-widest font-bold">Waiting for System Intel...</p>
 				</div>
 			</div>
+			<script>
+			(function() {
+				var es = new EventSource('/api/scan/logs?id=%s');
+
+				es.addEventListener('log', function(e) {
+					var log = document.getElementById('activity-log');
+					if (log) { log.insertAdjacentHTML('afterbegin', e.data); }
+				});
+
+				es.addEventListener('done', function(e) {
+					es.close(); // Explicitly close — no reconnects ever
+
+					// Update status indicator
+					var dot = document.getElementById('log-status-dot');
+					var label = document.getElementById('log-status-label');
+					if (dot) { dot.className = 'flex h-1.5 w-1.5 rounded-full bg-green-500'; }
+					if (label) { label.className = 'text-[9px] font-bold uppercase tracking-widest text-green-500'; label.textContent = 'Scan Complete'; }
+
+					// Collapse log panel
+					var body = document.getElementById('activity-log-body');
+					var btn = document.getElementById('log-toggle-btn');
+					if (body) body.style.display = 'none';
+					if (btn) btn.textContent = 'View Logs';
+
+					// Fetch scan results via standard HTMX request
+					htmx.ajax('GET', '/api/scan/result', {
+						target: '#results-skeleton',
+						swap: 'outerHTML'
+					});
+				});
+
+				es.onerror = function() { es.close(); };
+			})();
+			</script>
 		`, scanID))
 	})
 
@@ -306,25 +338,13 @@ func formatScanResultsHTML(res system.ScanResult) string {
 	}
 
 	return fmt.Sprintf(`
-		<!-- Swap Env Intel -->
+		<!-- OOB: stat card updates -->
 		<div id="active-wm" hx-swap-oob="innerHTML">%s</div>
 		<div id="total-protected" hx-swap-oob="innerHTML">%d</div>
 		<div id="protected-assets-count" hx-swap-oob="innerHTML">%d</div>
 		<div id="total-reclaimable" hx-swap-oob="innerHTML">%s</div>
 
-		<!-- Collapse the log panel and mark as complete -->
-		<div id="activity-log-body" hx-swap-oob="outerHTML"><div id="activity-log-body" style="display:none;"></div></div>
-		<span id="log-status-dot" hx-swap-oob="outerHTML"><span id="log-status-dot" class="flex h-1.5 w-1.5 rounded-full bg-green-500"></span></span>
-		<span id="log-status-label" hx-swap-oob="outerHTML"><span id="log-status-label" class="text-[9px] font-bold uppercase tracking-widest text-green-500">Scan Complete — View Logs</span></span>
-		<button id="log-toggle-btn" hx-swap-oob="outerHTML"><button id="log-toggle-btn"
-			onclick="(function(){
-				var log = document.getElementById('activity-log-body');
-				var btn = document.getElementById('log-toggle-btn');
-				if (log.style.display === 'none') { log.style.display = ''; btn.textContent = 'Hide'; }
-				else { log.style.display = 'none'; btn.textContent = 'View Logs'; }
-			})()"
-			class="text-[9px] font-bold text-brand-400 hover:text-brand-300 transition uppercase tracking-widest">View Logs</button></button>
-
+		<!-- OOB: env intel cards -->
 		<div id="intel-section" hx-swap-oob="innerHTML">
 			<div class="grid grid-cols-1 md:grid-cols-3 gap-3 mb-6">
                 <!-- Environment Insight -->
@@ -343,68 +363,66 @@ func formatScanResultsHTML(res system.ScanResult) string {
 			</div>
 		</div>
 
-		<div id="results-skeleton" hx-swap-oob="outerHTML">
-            <div id="prune-results-container" class="animate-in fade-in slide-in-from-bottom-4 duration-700">
-                <form id="prune-form" hx-post="/api/prune" hx-target="#prune-status" hx-indicator="#prune-spinner">
-                    
-                    <!-- Selection Summary -->
-                    <div class="bg-slate-800/50 border border-brand-500/30 rounded-3xl p-6 mb-6 shadow-2xl overflow-hidden relative group">
-                         <div class="absolute top-0 right-0 p-8 opacity-10 group-hover:opacity-20 transition-opacity">
-                             <div class="text-7xl font-black italic select-none">RECLAIM</div>
-                         </div>
-                         <div class="relative z-10">
-                             <h3 id="current-selection-size" class="text-5xl font-black tabular-nums transition-all">%s</h3>
-                            <div class="flex items-center space-x-2 mt-1">
-                                <p class="text-xs font-bold text-brand-400 uppercase tracking-[0.3em]">Total Prunable Assets</p>
-                                <span class="w-1 h-1 bg-white/20 rounded-full"></span>
-                                <p class="text-[10px] font-bold text-slate-500 uppercase tracking-widest">%s</p>
-                            </div>
-                         </div>
-                    </div>
+		<!-- Main content: replaces #results-skeleton via outerHTML (htmx.ajax target) -->
+		<div id="prune-results-container" class="animate-in fade-in slide-in-from-bottom-4 duration-700">
+			<form id="prune-form" hx-post="/api/prune" hx-target="#prune-status" hx-indicator="#prune-spinner">
+				
+				<!-- Selection Summary -->
+				<div class="bg-slate-800/50 border border-brand-500/30 rounded-3xl p-6 mb-6 shadow-2xl overflow-hidden relative group">
+					 <div class="absolute top-0 right-0 p-8 opacity-10 group-hover:opacity-20 transition-opacity">
+						 <div class="text-7xl font-black italic select-none">RECLAIM</div>
+					 </div>
+					 <div class="relative z-10">
+						 <h3 id="current-selection-size" class="text-5xl font-black tabular-nums transition-all">%s</h3>
+						<div class="flex items-center space-x-2 mt-1">
+							<p class="text-xs font-bold text-brand-400 uppercase tracking-[0.3em]">Total Prunable Assets</p>
+							<span class="w-1 h-1 bg-white/20 rounded-full"></span>
+							<p class="text-[10px] font-bold text-slate-500 uppercase tracking-widest">%s</p>
+						</div>
+					 </div>
+				</div>
 
-                    <!-- Core Targets (System Items) Horizontal Grid -->
-                    <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mb-8">
-                        %s
-                    </div>
+				<!-- Core Targets (System Items) Horizontal Grid -->
+				<div class="grid grid-cols-1 md:grid-cols-3 gap-3 mb-8">
+					%s
+				</div>
 
-                    <!-- Protected & Prunable Toggle Tabs? No, just list both -->
-                    <div class="space-y-6">
-                        <!-- Prunable Section -->
-                        <div class="space-y-4">
-                            <h4 class="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Prunable Items</h4>
-                            %s
-                        </div>
+				<div class="space-y-6">
+					<!-- Prunable Section -->
+					<div class="space-y-4">
+						<h4 class="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Prunable Items</h4>
+						%s
+					</div>
 
-                        <!-- Protected Section -->
-                        <div class="pt-4 border-t border-white/5">
-                            <h4 class="text-[10px] font-bold text-brand-400 uppercase tracking-widest px-1 mb-4 flex items-center">
-                                <svg class="w-3 h-3 mr-2 text-brand-400" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clip-rule="evenodd"/></path></svg>
-                                Currently Active (Protected Assets)
-                            </h4>
-                            <div class="bg-slate-900/40 rounded-2xl border border-white/5 p-4">
-                                <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
-                                    %s
-                                </div>
-                            </div>
-                        </div>
-                    </div>
+					<!-- Protected Section -->
+					<div class="pt-4 border-t border-white/5">
+						<h4 class="text-[10px] font-bold text-brand-400 uppercase tracking-widest px-1 mb-4 flex items-center">
+							<svg class="w-3 h-3 mr-2 text-brand-400" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clip-rule="evenodd"/></path></svg>
+							Currently Active (Protected Assets)
+						</h4>
+						<div class="bg-slate-900/40 rounded-2xl border border-white/5 p-4">
+							<div class="grid grid-cols-1 md:grid-cols-2 gap-2">
+								%s
+							</div>
+						</div>
+					</div>
+				</div>
 
-                    <div id="prune-status" class="mt-8">
-                         <button type="submit" %s class="w-full bg-brand-500 hover:bg-brand-600 disabled:opacity-50 disabled:cursor-not-allowed text-white font-black py-5 rounded-2xl transition-all shadow-xl shadow-brand-500/30 flex items-center justify-center space-x-3 group">
-                            <span>Execute Cleanup</span>
-                            <svg id="prune-spinner" class="htmx-indicator animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                            </svg>
-                         </button>
-                    </div>
-				</form>
-            </div>
+				<div id="prune-status" class="mt-8">
+					 <button type="submit" %s class="w-full bg-brand-500 hover:bg-brand-600 disabled:opacity-50 disabled:cursor-not-allowed text-white font-black py-5 rounded-2xl transition-all shadow-xl shadow-brand-500/30 flex items-center justify-center space-x-3 group">
+						<span>Execute Cleanup</span>
+						<svg id="prune-spinner" class="htmx-indicator animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+							<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+							<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+						</svg>
+					 </button>
+				</div>
+			</form>
 		</div>
-	`, 
-		res.Env.WM, len(res.Assets), len(res.Assets), totalSizeStr, 
-		res.Env.WM, res.Env.DM, res.Env.Bootloader, 
-		totalSizeStr, 
+	`,
+		res.Env.WM, len(res.Assets), len(res.Assets), totalSizeStr,
+		res.Env.WM, res.Env.DM, res.Env.Bootloader,
+		totalSizeStr,
 		formatBreakdown(res, themes, icons, fonts),
 		formatOtherSizes(res),
 		formatCategorySections(themes, icons, fonts),

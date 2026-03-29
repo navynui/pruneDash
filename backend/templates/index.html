@@ -91,9 +91,6 @@
                             </svg>
                         </span>
                     </button>
-                    <button class="bg-slate-700/50 hover:bg-slate-700 text-slate-300 font-semibold py-4 px-8 rounded-2xl transition-all border border-slate-600/50">
-                        Dry Run Settings
-                    </button>
                 </div>
 
                 <div id="scan-results" class="mt-8">
@@ -212,7 +209,7 @@
 			}
 		});
 
-		// Also handle HTMX swaps - re-init totals after scan results load
+		// Re-init selection totals after scan results load
 		document.addEventListener('htmx:afterSwap', (e) => {
 			if (e.detail.target.id === 'results-skeleton' || e.detail.target.id === 'prune-results-container') {
 				updateTotals();
