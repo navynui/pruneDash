@@ -267,7 +267,7 @@ func main() {
 					<div hx-swap-oob="outerHTML:#row-%s"></div>
 					%s
 					<div hx-swap-oob="innerHTML:#total-reclaimable">%s</div>
-				`, id, formatBinSection(true), system.FormatSize(totalReclaimed)))
+				`, sanitizeID(id), formatBinSection(true), system.FormatSize(totalReclaimed)))
 			}
 			return c.Status(404).SendString("Asset not found")
 		}
@@ -298,7 +298,7 @@ func main() {
 			%s
 			<div hx-swap-oob="innerHTML:#category-total-%s">%s</div>
 			<div hx-swap-oob="innerHTML:#total-reclaimable">%s</div>
-		`, id, formatBinSection(true), aType, system.FormatSize(categoryTotal), system.FormatSize(globalTotal + LastScanResult.PacmanMetrics.Reclaim + LastScanResult.JournalMetrics.Reclaim + LastScanResult.UserCacheSize)))
+		`, sanitizeID(id), formatBinSection(true), aType, system.FormatSize(categoryTotal), system.FormatSize(globalTotal + LastScanResult.PacmanMetrics.Reclaim + LastScanResult.JournalMetrics.Reclaim + LastScanResult.UserCacheSize)))
 	})
 
 	// API: Bin Restore
@@ -515,7 +515,7 @@ func renderCategory(title string, assets []system.ProtectedAsset, emoji string) 
 					</button>
 				</div>
 			</div>
-		`, a.Name, a.Name, tags, a.FormattedSize, a.Name, a.Type)
+		`, sanitizeID(a.Name), a.Name, tags, a.FormattedSize, a.Name, a.Type)
 	}
 
 	return fmt.Sprintf(`
@@ -655,7 +655,7 @@ func formatOtherSizes(res system.ScanResult) string {
 						</button>
 					</div>
 				</div>
-			`, item.name, item.icon, item.name, system.FormatSize(item.size), item.name)
+			`, sanitizeID(item.name), item.icon, item.name, system.FormatSize(item.size), item.name)
 		}
 	}
 	return html
@@ -763,4 +763,15 @@ func sourceToLabel(source string) string {
 	default:
 		return strings.ToLower(source)
 	}
+}
+
+// sanitizeID ensures a string is a valid CSS/DOM ID by replacing 
+// invalid characters with underscores.
+func sanitizeID(id string) string {
+	return strings.Map(func(r rune) rune {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' {
+			return r
+		}
+		return '_'
+	}, id)
 }
