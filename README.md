@@ -7,10 +7,10 @@ PruneDash is designed to help you reclaim storage with surgical precision by ide
 
 ## ✨ Features
 - **🔍 Intelligent Storage Audit**: Deep scan of `pacman` caches, `systemd` journals, and user caches, distinctly separating **Prunable Storage** from **Protected Assets** (like kept package versions for stability).
-- **🛡️ Safe Staging (Prune Bin)**: Files are moved to a temporary staging area instead of being deleted, allowing for instant "Undo."
+- **🛡️ Safe Staging (Self-Managing Prune Bin)**: Files are staged in a temporary area instead of being deleted, with a intelligent UI that only appears when items are staged, ensuring a clean dashboard at all times. Supports instant "Undo."
 - **🔒 Protected Assets**: Automatically identifies and locks active themes/icons/fonts by parsing configs for Hyprland, Niri, and GTK. 
 - **⚡ Asynchronous Parallel Scanning**: Ultra-fast audit engine leveraging Goroutines to complete multi-GB system scans in milliseconds.
-- **📊 Real-Time Feedback**: HTMX-powered dashboard with live SSE (Server-Sent Events) log streaming and a premium, responsive single-column layout.
+- **📊 Real-Time Feedback**: Premium, HTMX-powered dashboard with live SSE (Server-Sent Events) log streaming and a responsive single-column layout.
 - **🐳 Containerized**: Spin up in seconds using Docker without polluting your host system.
 
 ---

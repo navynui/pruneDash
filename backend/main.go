@@ -257,7 +257,7 @@ func main() {
 				
 				return c.SendString(fmt.Sprintf(`
 					<div hx-swap-oob="outerHTML:#row-%s"></div>
-					<div hx-swap-oob="innerHTML:#bin-section">%s</div>
+					%s
 				`, id, formatBinSection()))
 			}
 			return c.Status(404).SendString("Asset not found")
@@ -286,7 +286,7 @@ func main() {
 
 		return c.SendString(fmt.Sprintf(`
 			<div hx-swap-oob="outerHTML:#row-%s"></div>
-			<div hx-swap-oob="innerHTML:#bin-content">%s</div>
+			%s
 			<div hx-swap-oob="innerHTML:#category-total-%s">%s</div>
 			<div hx-swap-oob="innerHTML:#total-reclaimable">%s</div>
 		`, id, formatBinSection(), aType, system.FormatSize(categoryTotal), system.FormatSize(globalTotal)))
@@ -305,7 +305,7 @@ func main() {
 		// Ideally we would re-scan or add back to LastScanResult
 		// For now, let's just update the bin UI.
 		return c.SendString(fmt.Sprintf(`
-			<div hx-swap-oob="innerHTML:#bin-content">%s</div>
+			%s
 			<div class="fixed bottom-4 right-4 p-4 bg-green-500 text-white rounded-xl shadow-2xl animate-in slide-in-from-right-full">
 				Restored %s
 			</div>
@@ -321,7 +321,7 @@ func main() {
 		}
 		
 		return c.SendString(fmt.Sprintf(`
-			<div hx-swap-oob="innerHTML:#bin-content">%s</div>
+			%s
 		`, formatBinSection()))
 	})
 
@@ -396,10 +396,8 @@ func formatScanResultsHTML(res system.ScanResult) string {
 		<div id="prune-results-container" class="animate-in fade-in slide-in-from-bottom-4 duration-700">
 			
 			<div class="space-y-6">
-				<!-- Prune Bin Section (New) -->
-				<div id="bin-section" class="mb-8">
-					<div id="bin-content">%s</div>
-				</div>
+				<!-- Prune Bin Section -->
+				%s
 
 				<!-- Prunable Section -->
 				<div class="space-y-4">
@@ -527,50 +525,77 @@ func renderCategory(title string, assets []system.ProtectedAsset, emoji string) 
 
 func formatBinSection() string {
 	assets, _ := system.GetBinAssets()
-	if len(assets) == 0 {
-		return ""
-	}
-
+	
 	rows := ""
 	var totalSize int64
-	for binDir, entry := range assets {
-		totalSize += entry.Size
-		rows += fmt.Sprintf(`
-			<div class="flex items-center justify-between p-3 border-b border-white/5 hover:bg-white/5 transition group">
-				<div class="flex items-center space-x-3 overflow-hidden">
-					<span class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">[%s]</span>
-					<span class="text-xs font-medium text-slate-200 truncate">%s</span>
-				</div>
-				<div class="flex items-center space-x-4">
-					<span class="text-[10px] font-mono text-slate-500">%s</span>
-					<div class="flex items-center space-x-2">
-						<button hx-post="/api/bin/restore?binDir=%s" 
-								hx-swap="none"
-								class="text-[9px] font-bold text-green-400 hover:text-green-300 transition-all uppercase tracking-widest">
-							Undo
-						</button>
-						<span class="text-slate-700 font-black">/</span>
-						<button hx-post="/api/bin/confirm?binDir=%s" 
-								hx-swap="none"
-								class="text-[9px] font-bold text-slate-500 hover:text-white transition-all uppercase tracking-widest">
-							Confirm
-						</button>
+	
+	if len(assets) > 0 {
+		// Collect and sort for stability (maps are random)
+		type sortedEntry struct {
+			binDir string
+			entry  system.PruneEntry
+		}
+		var sorted []sortedEntry
+		for binDir, entry := range assets {
+			if entry.Name == "" || entry.Type == "" {
+				continue
+			}
+			sorted = append(sorted, sortedEntry{binDir, entry})
+		}
+
+		sort.Slice(sorted, func(i, j int) bool {
+			return sorted[i].entry.Name < sorted[j].entry.Name
+		})
+
+		for _, s := range sorted {
+			binDir := s.binDir
+			entry := s.entry
+			totalSize += entry.Size
+			rows += fmt.Sprintf(`
+				<div class="flex items-center justify-between p-3 border-b border-white/5 last:border-0 hover:bg-white/10 transition group">
+					<div class="flex items-center space-x-3 overflow-hidden">
+						<span class="text-[9px] font-bold text-slate-500 uppercase tracking-widest px-1.5 py-0.5 rounded bg-slate-800 border border-white/5">%s</span>
+						<span class="text-xs font-semibold text-slate-200 truncate group-hover:text-white transition-colors">%s</span>
+					</div>
+					<div class="flex items-center space-x-4 shrink-0">
+						<span class="text-[10px] font-mono text-slate-500">%s</span>
+						<div class="flex items-center space-x-2">
+							<button hx-post="/api/bin/restore?binDir=%s" 
+									hx-swap="none"
+									class="text-[9px] font-bold text-green-400 hover:text-green-300 transition-all uppercase tracking-widest focus:outline-none">
+								Undo
+							</button>
+							<span class="text-slate-700 font-black">/</span>
+							<button hx-post="/api/bin/confirm?binDir=%s" 
+									hx-swap="none"
+									class="text-[9px] font-bold text-slate-500 hover:text-white transition-all uppercase tracking-widest focus:outline-none">
+								Confirm
+							</button>
+						</div>
 					</div>
 				</div>
-			</div>
-		`, entry.Type, entry.Name, system.FormatSize(entry.Size), binDir, binDir)
+			`, strings.ToUpper(entry.Type), entry.Name, system.FormatSize(entry.Size), binDir, binDir)
+		}
+	}
+
+	// If no valid rows, return a hidden container to maintain the OOB target without layout impact
+	if rows == "" {
+		return `<div id="bin-section" class="hidden"></div>`
 	}
 
 	return fmt.Sprintf(`
-		<div class="bg-brand-500/5 rounded-3xl border border-brand-500/20 overflow-hidden animate-in zoom-in duration-500 text-left">
+		<div id="bin-section" class="mb-8 bg-brand-500/5 rounded-3xl border border-brand-500/20 overflow-hidden animate-in slide-in-from-top-4 duration-500 text-left shadow-2xl shadow-black/20">
 			<div class="flex items-center justify-between bg-brand-500/10 px-5 py-3 border-b border-brand-500/10">
 				<div class="flex items-center space-x-3">
-					<span class="w-2 h-2 rounded-full bg-brand-500 animate-pulse"></span>
+					<div class="relative">
+						<span class="absolute inset-0 bg-brand-500 rounded-full animate-ping opacity-20"></span>
+						<span class="relative block w-2 h-2 rounded-full bg-brand-500"></span>
+					</div>
 					<span class="text-[10px] font-black uppercase tracking-[0.4em] text-brand-400">Prune Bin (Staged for removal)</span>
 				</div>
-				<span class="text-[10px] font-black text-brand-400 uppercase tracking-widest underline decoration-brand-500/30 underline-offset-4">%s RECLAIMABLE</span>
+				<span class="text-[10px] font-black text-brand-400 uppercase tracking-widest px-2 py-0.5 rounded-full bg-brand-500/10 border border-brand-500/20 shadow-inner">%s RECLAIMABLE</span>
 			</div>
-			<div class="max-h-64 overflow-y-auto custom-scrollbar">
+			<div class="max-h-[400px] overflow-y-auto custom-scrollbar">
 				%s
 			</div>
 		</div>
