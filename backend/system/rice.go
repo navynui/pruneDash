@@ -137,6 +137,7 @@ type CoreEnvironment struct {
 type ProtectedAsset struct {
 	Name          string `json:"name"`
 	Type          string `json:"type"`          // "theme", "icon", "font", "cursor"
+	Subtype       string `json:"subtype"`       // "GTK3", "GTK4", etc.
 	Path          string `json:"path"`          // Absolute path on host
 	Source        string `json:"source"`        // Config file where found
 	Priority      int    `json:"priority"`      // 1=core, 2=app, 3=global
@@ -295,6 +296,9 @@ func GetProtectedAssets(logChan chan string, env CoreEnvironment) []ProtectedAss
 			size, _ := DirSize(assets[i].Path)
 			assets[i].Size = size
 			assets[i].FormattedSize = FormatSize(size)
+			if assets[i].Type == "theme" {
+				assets[i].Subtype = detectThemeType(assets[i].Path)
+			}
 		}
 	}
 
@@ -607,9 +611,14 @@ func GetInstalledAssets(logChan chan string) []ProtectedAsset {
 				if f.IsDir() {
 					fullPath := filepath.Join(path, f.Name())
 					size, _ := DirSize(fullPath)
+					subtype := ""
+					if aType == "theme" {
+						subtype = detectThemeType(fullPath)
+					}
 					assets = append(assets, ProtectedAsset{
 						Name:          f.Name(),
 						Type:          aType,
+						Subtype:       subtype,
 						Path:          fullPath,
 						Size:          size,
 						FormattedSize: FormatSize(size),
@@ -744,6 +753,31 @@ func detectLang(input string) string {
 	if strings.Contains(u, "ARABIC") { return "Arabic" }
 	if strings.Contains(u, "CJK") { return "East Asian" }
 	
+	return ""
+}
+
+func detectThemeType(path string) string {
+	if _, err := os.Stat(filepath.Join(path, "gtk-4.0")); err == nil {
+		return "GTK4"
+	}
+	if _, err := os.Stat(filepath.Join(path, "gtk-3.0")); err == nil {
+		return "GTK3"
+	}
+	if _, err := os.Stat(filepath.Join(path, "gtk-2.0")); err == nil {
+		return "GTK2"
+	}
+	if _, err := os.Stat(filepath.Join(path, "gnome-shell")); err == nil {
+		return "Gnome Shell"
+	}
+	if _, err := os.Stat(filepath.Join(path, "xfwm4")); err == nil {
+		return "XFWM4"
+	}
+	if _, err := os.Stat(filepath.Join(path, "openbox-3")); err == nil {
+		return "Openbox"
+	}
+	if _, err := os.Stat(filepath.Join(path, "metadata.desktop")); err == nil {
+		return "SDDM"
+	}
 	return ""
 }
 

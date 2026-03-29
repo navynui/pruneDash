@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -217,79 +218,111 @@ func main() {
 		`, scanID))
 	})
 
-	// API: Prune (Execute Cleanup)
-	app.Post("/api/prune", func(c *fiber.Ctx) error {
-		// Get all selected asset identifiers (Name:Type)
-		var assetIds []string
-		c.Context().PostArgs().VisitAll(func(key, value []byte) {
-			if string(key) == "assets" {
-				assetIds = append(assetIds, string(value))
-			}
-		})
+	// API: Prune Prepare (Show Confirm Button)
+	app.Post("/api/prune/prepare", func(c *fiber.Ctx) error {
+		id := c.Query("id")
+		aType := c.Query("type")
+		return c.SendString(fmt.Sprintf(`
+			<button hx-post="/api/prune/confirm?id=%s&type=%s" 
+					hx-swap="none"
+					class="bg-red-500 hover:bg-red-600 text-white text-[10px] font-black px-3 py-1 rounded-lg transition-all shadow-lg shadow-red-500/20">
+				Confirm
+			</button>
+		`, id, aType))
+	})
 
-		if len(assetIds) == 0 {
-			// Check if any assets were even available
-			if len(LastScanResult.PrunableAssets) > 0 {
-				return c.SendString("<div class='p-4 bg-amber-500/10 border border-amber-500/20 text-amber-500 rounded-xl'>No assets selected for cleanup.</div>")
-			}
-		}
-
-		// 1. Move to Prune Bin (Themes, Icons, Fonts)
-		moved, size, err := system.MoveToPruneBin(assetIds, LastScanResult.PrunableAssets, DryRunMode)
-		if err != nil {
-			return c.SendString(fmt.Sprintf("<div class='text-red-500'>Error moving to bin: %v</div>", err))
-		}
-
-		// 2. Selectively Clear Caches & Logs
-		var purgeLogs []string
+	// API: Prune Confirm (Actually Move to Bin)
+	app.Post("/api/prune/confirm", func(c *fiber.Ctx) error {
+		id := c.Query("id")
+		aType := c.Query("type")
 		
-		// Check for system items
-		doPacman := false
-		doJournal := false
-		doUserCache := false
-		for _, id := range assetIds {
-			if id == "Package Cache:system" { doPacman = true }
-			if id == "System Journals:system" { doJournal = true }
-			if id == "User Cache:system" { doUserCache = true }
+		found := false
+		for _, a := range LastScanResult.PrunableAssets {
+			if a.Name+":"+a.Type == id+":"+aType {
+				found = true
+				break
+			}
 		}
 
-		if doPacman || doJournal {
-			logs, _ := system.PurgeCachesSelective(doPacman, doJournal)
-			purgeLogs = append(purgeLogs, logs...)
-		}
-		if doUserCache {
-			system.ClearUserCache()
-			purgeLogs = append(purgeLogs, "User cache cleared successfully.")
+		// Handle System Items (Special Case)
+		if !found {
+			if id == "Package Cache" || id == "System Journals" || id == "User Cache" {
+				found = true
+				// For system items, we execute the purge immediately as before
+				// but we don't move them to "bin" as they're not restorable in the same way
+				// (or we could, but let's keep it simple for now as they're one-off commands)
+				if id == "Package Cache" { system.PurgeCachesSelective(true, false) }
+				if id == "System Journals" { system.PurgeCachesSelective(false, true) }
+				if id == "User Cache" { system.ClearUserCache() }
+				
+				return c.SendString(fmt.Sprintf(`
+					<div hx-swap-oob="outerHTML:#row-%s"></div>
+					<div hx-swap-oob="innerHTML:#bin-section">%s</div>
+				`, id, formatBinSection()))
+			}
+			return c.Status(404).SendString("Asset not found")
 		}
 
-		prefix := ""
-		if DryRunMode {
-			prefix = "[DRY RUN] "
+		_, _, err := system.MoveToPruneBin([]string{id + ":" + aType}, LastScanResult.PrunableAssets, DryRunMode)
+		if err != nil {
+			return c.Status(500).SendString(err.Error())
 		}
+
+		// Update LastScanResult and recalculate totals
+		newPrunable := []system.ProtectedAsset{}
+		categoryTotal := int64(0)
+		globalTotal := int64(0)
+		for _, a := range LastScanResult.PrunableAssets {
+			if a.Name+":"+a.Type != id+":"+aType {
+				newPrunable = append(newPrunable, a)
+				globalTotal += a.Size
+				if a.Type == aType {
+					categoryTotal += a.Size
+				}
+			}
+		}
+		LastScanResult.PrunableAssets = newPrunable
+		LastScanResult.PrunableSize = globalTotal
 
 		return c.SendString(fmt.Sprintf(`
-			<div class="mt-4 p-6 rounded-3xl bg-green-500/10 border border-green-500/20 text-green-100 animate-in fade-in zoom-in duration-500">
-				<div class="flex items-center space-x-4 mb-4">
-					<div class="w-12 h-12 rounded-2xl bg-green-500/20 flex items-center justify-center text-2xl font-bold">✨</div>
-					<div>
-						<h3 class="font-bold text-lg leading-tight">%sCleanup Successful</h3>
-						<p class="text-xs text-green-400 font-semibold uppercase tracking-wider">%d Assets Staged / %s reclaimed</p>
-					</div>
-				</div>
-				<ul class="text-[11px] space-y-1.5 opacity-80 font-medium px-2">
-					%s
-					<li>User cache cleared successfully.</li>
-				</ul>
-				
-				<div class="mt-6 flex items-center space-x-3">
-					<button hx-post="/api/restore" hx-target="#prune-status" hx-swap="outerHTML" 
-							class="text-[11px] font-bold bg-white/10 hover:bg-white/20 px-4 py-2 rounded-xl transition-all border border-white/10">
-						Undo Last Action
-					</button>
-                    <button onclick="window.location.reload()" class="text-[11px] font-bold text-slate-500 hover:text-white px-2">Dismiss</button>
-				</div>
+			<div hx-swap-oob="outerHTML:#row-%s"></div>
+			<div hx-swap-oob="innerHTML:#bin-content">%s</div>
+			<div hx-swap-oob="innerHTML:#category-total-%s">%s</div>
+			<div hx-swap-oob="innerHTML:#total-reclaimable">%s</div>
+		`, id, formatBinSection(), aType, system.FormatSize(categoryTotal), system.FormatSize(globalTotal)))
+	})
+
+	// API: Bin Restore
+	app.Post("/api/bin/restore", func(c *fiber.Ctx) error {
+		binDir := c.Query("binDir")
+		name, err := system.RestoreItem(binDir, DryRunMode)
+		if err != nil {
+			return c.Status(500).SendString(err.Error())
+		}
+		
+		system.LogActivity("Restored " + name)
+		
+		// Ideally we would re-scan or add back to LastScanResult
+		// For now, let's just update the bin UI.
+		return c.SendString(fmt.Sprintf(`
+			<div hx-swap-oob="innerHTML:#bin-content">%s</div>
+			<div class="fixed bottom-4 right-4 p-4 bg-green-500 text-white rounded-xl shadow-2xl animate-in slide-in-from-right-full">
+				Restored %s
 			</div>
-		`, prefix, moved, system.FormatSize(size), formatLogs(purgeLogs)))
+		`, formatBinSection(), name))
+	})
+
+	// API: Bin Confirm (Permanent Delete)
+	app.Post("/api/bin/confirm", func(c *fiber.Ctx) error {
+		binDir := c.Query("binDir")
+		err := system.ConfirmItem(binDir)
+		if err != nil {
+			return c.Status(500).SendString(err.Error())
+		}
+		
+		return c.SendString(fmt.Sprintf(`
+			<div hx-swap-oob="innerHTML:#bin-content">%s</div>
+		`, formatBinSection()))
 	})
 
 	// API: Restore (Undo)
@@ -332,10 +365,6 @@ func formatScanResultsHTML(res system.ScanResult) string {
 	fonts := filterAssets(res.PrunableAssets, "font")
 
 	totalSizeStr := system.FormatSize(res.PrunableSize)
-	disabledAttr := ""
-	if res.PrunableSize == 0 {
-		disabledAttr = "disabled"
-	}
 
 	return fmt.Sprintf(`
 		<!-- OOB: stat card updates -->
@@ -365,69 +394,45 @@ func formatScanResultsHTML(res system.ScanResult) string {
 
 		<!-- Main content: replaces #results-skeleton via outerHTML (htmx.ajax target) -->
 		<div id="prune-results-container" class="animate-in fade-in slide-in-from-bottom-4 duration-700">
-			<form id="prune-form" hx-post="/api/prune" hx-target="#prune-status" hx-indicator="#prune-spinner">
-				
-				<!-- Selection Summary -->
-				<div class="bg-slate-800/50 border border-brand-500/30 rounded-3xl p-6 mb-6 shadow-2xl overflow-hidden relative group">
-					 <div class="absolute top-0 right-0 p-8 opacity-10 group-hover:opacity-20 transition-opacity">
-						 <div class="text-7xl font-black italic select-none">RECLAIM</div>
-					 </div>
-					 <div class="relative z-10">
-						 <h3 id="current-selection-size" class="text-5xl font-black tabular-nums transition-all">%s</h3>
-						<div class="flex items-center space-x-2 mt-1">
-							<p class="text-xs font-bold text-brand-400 uppercase tracking-[0.3em]">Total Prunable Assets</p>
-							<span class="w-1 h-1 bg-white/20 rounded-full"></span>
-							<p class="text-[10px] font-bold text-slate-500 uppercase tracking-widest">%s</p>
-						</div>
-					 </div>
+			
+			<div class="space-y-6">
+				<!-- Prune Bin Section (New) -->
+				<div id="bin-section" class="mb-8">
+					<div id="bin-content">%s</div>
 				</div>
 
-				<!-- Core Targets (System Items) Horizontal Grid -->
-				<div class="grid grid-cols-1 md:grid-cols-3 gap-3 mb-8">
+				<!-- Prunable Section -->
+				<div class="space-y-4">
+					<h4 class="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Prunable Items</h4>
 					%s
-				</div>
-
-				<div class="space-y-6">
-					<!-- Prunable Section -->
-					<div class="space-y-4">
-						<h4 class="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Prunable Items</h4>
+					
+					<!-- System Items -->
+					<div class="grid grid-cols-1 md:grid-cols-3 gap-3">
 						%s
 					</div>
+				</div>
 
-					<!-- Protected Section -->
-					<div class="pt-4 border-t border-white/5">
-						<h4 class="text-[10px] font-bold text-brand-400 uppercase tracking-widest px-1 mb-4 flex items-center">
-							<svg class="w-3 h-3 mr-2 text-brand-400" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clip-rule="evenodd"/></path></svg>
-							Currently Active (Protected Assets)
-						</h4>
-						<div class="bg-slate-900/40 rounded-2xl border border-white/5 p-4">
-							<div class="grid grid-cols-1 md:grid-cols-2 gap-2">
-								%s
-							</div>
+				<!-- Protected Section -->
+				<div class="pt-4 border-t border-white/5">
+					<h4 class="text-[10px] font-bold text-brand-400 uppercase tracking-widest px-1 mb-4 flex items-center">
+						<svg class="w-3 h-3 mr-2 text-brand-400" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clip-rule="evenodd"/></path></svg>
+						Currently Active (Protected Assets)
+					</h4>
+					<div class="bg-slate-900/40 rounded-2xl border border-white/5 p-4 text-left">
+						<div class="grid grid-cols-1 md:grid-cols-2 gap-2">
+							%s
 						</div>
 					</div>
 				</div>
-
-				<div id="prune-status" class="mt-8">
-					 <button type="submit" %s class="w-full bg-brand-500 hover:bg-brand-600 disabled:opacity-50 disabled:cursor-not-allowed text-white font-black py-5 rounded-2xl transition-all shadow-xl shadow-brand-500/30 flex items-center justify-center space-x-3 group">
-						<span>Execute Cleanup</span>
-						<svg id="prune-spinner" class="htmx-indicator animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-							<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-							<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-						</svg>
-					 </button>
-				</div>
-			</form>
+			</div>
 		</div>
 	`,
 		res.Env.WM, len(res.Assets), len(res.Assets), totalSizeStr,
 		res.Env.WM, res.Env.DM, res.Env.Bootloader,
-		totalSizeStr,
-		formatBreakdown(res, themes, icons, fonts),
-		formatOtherSizes(res),
+		formatBinSection(),
 		formatCategorySections(themes, icons, fonts),
-		formatProtectedList(res.Assets),
-		disabledAttr)
+		formatOtherSizes(res),
+		formatProtectedList(res.Assets))
 }
 
 func formatBreakdown(res system.ScanResult, themes, icons, fonts []system.ProtectedAsset) string {
@@ -464,7 +469,6 @@ func formatCategorySections(themes, icons, fonts []system.ProtectedAsset) string
 	}
 	return res
 }
-
 func renderCategory(title string, assets []system.ProtectedAsset, emoji string) string {
 	var totalSize int64
 	for _, a := range assets {
@@ -478,45 +482,99 @@ func renderCategory(title string, assets []system.ProtectedAsset, emoji string) 
 
 	rows := ""
 	for _, a := range assets {
-		// Identifier format: Name:Type
-		id := fmt.Sprintf("%s:%s", a.Name, a.Type)
-		// Build optional source tag for themes
-		sourceTag := ""
-		if a.Type == "theme" && a.Source != "" {
-			sourceTag = fmt.Sprintf(` <span class="text-[9px] font-bold text-slate-600 bg-white/5 px-1.5 py-0.5 rounded-md uppercase tracking-widest">%s</span>`, sourceToLabel(a.Source))
+		// Build optional tags
+		tags := ""
+		if a.Subtype != "" {
+			tags += fmt.Sprintf(` <span class="text-[9px] font-black text-brand-400/60 ml-2 uppercase tracking-widest">[%s]</span>`, a.Subtype)
 		}
+		if a.Source != "" {
+			tags += fmt.Sprintf(` <span class="text-[9px] font-black text-slate-500/60 ml-1 uppercase tracking-widest">[%s]</span>`, sourceToLabel(a.Source))
+		}
+
 		rows += fmt.Sprintf(`
-			<div class="flex items-center justify-between p-3 border-b border-white/5 hover:bg-white/5 transition group">
-				<div class="flex items-center space-x-3">
-					<input type="checkbox" name="assets" value="%s" checked 
-						   data-size="%d" data-category="%s"
-						   class="w-4 h-4 rounded bg-slate-900 border-white/10 text-brand-500 focus:ring-brand-500">
-					<span class="text-xs font-medium text-slate-300">%s%s</span>
+			<div id="row-%s" class="flex items-center justify-between p-3 border-b border-white/5 hover:bg-white/5 transition group">
+				<div class="flex items-center space-x-3 overflow-hidden">
+					<span class="text-xs font-medium text-slate-300 truncate">%s</span>
+					%s
 				</div>
-				<span class="text-[10px] font-mono text-slate-500">%s</span>
+				<div class="flex items-center space-x-4">
+					<span class="text-[10px] font-mono text-slate-500">%s</span>
+					<button hx-post="/api/prune/prepare?id=%s&type=%s" 
+							hx-swap="outerHTML"
+							class="text-[9px] font-black text-brand-400 hover:text-white border border-brand-500/30 px-3 py-1 rounded-lg transition-all uppercase tracking-widest bg-brand-500/5">
+						Prune
+					</button>
+				</div>
 			</div>
-		`, id, a.Size, title, a.Name, sourceTag, a.FormattedSize)
+		`, a.Name, a.Name, tags, a.FormattedSize, a.Name, a.Type)
 	}
 
 	return fmt.Sprintf(`
-		<div class="bg-slate-800/30 rounded-2xl border border-white/5 overflow-hidden">
+		<div class="bg-slate-800/30 rounded-2xl border border-white/5 overflow-hidden text-left">
 			<div class="flex items-center justify-between bg-white/5 px-4 py-3">
-				<div class="flex items-center space-x-3 text-slate-400 hover:text-white transition group/header cursor-pointer">
-					<input type="checkbox" checked
-						   class="select-all-category w-4 h-4 rounded bg-slate-800 border-white/20 text-brand-500 focus:ring-brand-500 cursor-pointer"
-						   data-target-category="%s">
-					<label class="flex items-center space-x-2 cursor-pointer">
-						<span class="text-sm">%s</span>
-						<span class="text-xs font-bold uppercase tracking-widest select-none">%s</span>
-					</label>
+				<div class="flex items-center space-x-3">
+					<span class="text-sm">%s</span>
+					<span class="text-[10px] font-black uppercase tracking-[0.3em] text-slate-500">%s</span>
 				</div>
-				<span class="text-[10px] font-bold text-brand-400 category-total" data-category="%s">%s</span>
+				<span id="category-total-%s" class="text-[10px] font-black text-brand-400 uppercase tracking-widest">%s</span>
 			</div>
-			<div class="max-h-48 overflow-y-auto custom-scrollbar">
+			<div class="max-h-64 overflow-y-auto custom-scrollbar">
 				%s
 			</div>
 		</div>
-	`, title, emoji, title, title, system.FormatSize(totalSize), rows)
+	`, emoji, title, strings.ToLower(title[:len(title)-1]), system.FormatSize(totalSize), rows)
+}
+
+func formatBinSection() string {
+	assets, _ := system.GetBinAssets()
+	if len(assets) == 0 {
+		return ""
+	}
+
+	rows := ""
+	var totalSize int64
+	for binDir, entry := range assets {
+		totalSize += entry.Size
+		rows += fmt.Sprintf(`
+			<div class="flex items-center justify-between p-3 border-b border-white/5 hover:bg-white/5 transition group">
+				<div class="flex items-center space-x-3 overflow-hidden">
+					<span class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">[%s]</span>
+					<span class="text-xs font-medium text-slate-200 truncate">%s</span>
+				</div>
+				<div class="flex items-center space-x-4">
+					<span class="text-[10px] font-mono text-slate-500">%s</span>
+					<div class="flex items-center space-x-2">
+						<button hx-post="/api/bin/restore?binDir=%s" 
+								hx-swap="none"
+								class="text-[9px] font-bold text-green-400 hover:text-green-300 transition-all uppercase tracking-widest">
+							Undo
+						</button>
+						<span class="text-slate-700 font-black">/</span>
+						<button hx-post="/api/bin/confirm?binDir=%s" 
+								hx-swap="none"
+								class="text-[9px] font-bold text-slate-500 hover:text-white transition-all uppercase tracking-widest">
+							Confirm
+						</button>
+					</div>
+				</div>
+			</div>
+		`, entry.Type, entry.Name, system.FormatSize(entry.Size), binDir, binDir)
+	}
+
+	return fmt.Sprintf(`
+		<div class="bg-brand-500/5 rounded-3xl border border-brand-500/20 overflow-hidden animate-in zoom-in duration-500 text-left">
+			<div class="flex items-center justify-between bg-brand-500/10 px-5 py-3 border-b border-brand-500/10">
+				<div class="flex items-center space-x-3">
+					<span class="w-2 h-2 rounded-full bg-brand-500 animate-pulse"></span>
+					<span class="text-[10px] font-black uppercase tracking-[0.4em] text-brand-400">Prune Bin (Staged for removal)</span>
+				</div>
+				<span class="text-[10px] font-black text-brand-400 uppercase tracking-widest underline decoration-brand-500/30 underline-offset-4">%s RECLAIMABLE</span>
+			</div>
+			<div class="max-h-64 overflow-y-auto custom-scrollbar">
+				%s
+			</div>
+		</div>
+	`, system.FormatSize(totalSize), rows)
 }
 
 func formatLogs(logs []string) string {
@@ -542,17 +600,21 @@ func formatOtherSizes(res system.ScanResult) string {
 	for _, item := range items {
 		if item.size > 0 {
 			html += fmt.Sprintf(`
-				<div class="flex items-center justify-between p-4 bg-slate-800/30 rounded-2xl border border-white/5">
+				<div id="row-%s" class="flex items-center justify-between p-4 bg-slate-800/30 rounded-2xl border border-white/5 text-left">
 					<div class="flex items-center space-x-3">
-						<input type="checkbox" name="assets" value="%s:system" checked 
-						   data-size="%d" data-category="system"
-						   class="w-4 h-4 rounded bg-slate-900 border-white/10 text-brand-500 focus:ring-brand-500">
 						<span class="text-xl">%s</span>
 						<span class="text-xs font-bold text-slate-300 uppercase tracking-widest">%s</span>
 					</div>
-					<span class="text-[10px] font-mono text-brand-400 font-bold">%s</span>
+					<div class="flex items-center space-x-4">
+						<span class="text-[10px] font-mono text-brand-400 font-bold">%s</span>
+						<button hx-post="/api/prune/prepare?id=%s&type=system" 
+								hx-swap="outerHTML"
+								class="text-[9px] font-black text-brand-400 hover:text-white border border-brand-500/30 px-3 py-1 rounded-lg transition-all uppercase tracking-widest bg-brand-500/5">
+							Prune
+						</button>
+					</div>
 				</div>
-			`, item.name, item.size, item.icon, item.name, system.FormatSize(item.size))
+			`, item.name, item.icon, item.name, system.FormatSize(item.size), item.name)
 		}
 	}
 	return html
@@ -589,12 +651,15 @@ func formatProtectedList(assets []system.ProtectedAsset) string {
 		`, emojis[t], names[t])
 		
 		for _, a := range list {
+			sourceTag := ""
+			if a.Type == "theme" && a.Source != "" {
+				sourceTag = fmt.Sprintf(` <span class="text-[8px] font-bold text-slate-600 ml-1 uppercase">[%s]</span>`, sourceToLabel(a.Source))
+			}
 			html += fmt.Sprintf(`
 				<div class="flex items-center space-x-2 text-[10px] px-2 py-1 rounded-lg hover:bg-white/5 transition group">
-					<span class="font-medium text-slate-300 truncate">%s</span>
-					<span class="text-[8px] text-slate-600 opacity-0 group-hover:opacity-100 transition-opacity truncate">%s</span>
+					<span class="font-medium text-slate-300 truncate">%s%s</span>
 				</div>
-			`, a.Name, a.Source)
+			`, a.Name, sourceTag)
 		}
 		
 		html += `</div></div>`
