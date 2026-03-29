@@ -724,8 +724,7 @@ func GetPrunableAssets(logChan chan string, protected []ProtectedAsset) ([]Prote
 	for _, ins := range installed {
 		if !protectedMap[ins.Name+ins.Type] {
 			prunable = append(prunable, ins)
-			size, _ := DirSize(ins.Path)
-			totalSize += size
+			totalSize += ins.Size
 		}
 	}
 
