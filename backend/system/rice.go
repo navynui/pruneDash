@@ -593,16 +593,12 @@ func GetInstalledAssets(logChan chan string) []ProtectedAsset {
 			"/host/usr/share/sddm/themes",
 		},
 		"icon":  {"/host/usr/share/icons", "/host/home/nui/.local/share/icons", "/host/home/nui/.icons"},
-		"font":  {"/host/usr/share/fonts", "/host/home/nui/.local/share/fonts", "/host/home/nui/.fonts"},
 	}
+
+	fontPaths := []string{"/host/usr/share/fonts", "/host/home/nui/.local/share/fonts", "/host/home/nui/.fonts"}
 
 	for aType, paths := range types {
 		for _, path := range paths {
-			if aType == "font" {
-				assets = append(assets, scanFontsRecursive(path)...)
-				continue
-			}
-			
 			files, err := os.ReadDir(path)
 			if err != nil {
 				continue
@@ -622,107 +618,65 @@ func GetInstalledAssets(logChan chan string) []ProtectedAsset {
 			}
 		}
 	}
-	return assets
-}
 
-// scanFontsRecursive groups fonts by directory/family name
-func scanFontsRecursive(root string) []ProtectedAsset {
-	var assets []ProtectedAsset
-	
-	// Collect all readable font files
-	filePrefixes := make(map[string][]string) // path -> files
-	filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
-		if err != nil || info.IsDir() {
-			return nil
-		}
-		
-		ext := strings.ToLower(filepath.Ext(path))
-		if ext == ".ttf" || ext == ".otf" || ext == ".woff" || ext == ".woff2" {
-			dir := filepath.Dir(path)
-			filePrefixes[dir] = append(filePrefixes[dir], path)
-		}
-		return nil
-	})
-
-	for dir, files := range filePrefixes {
-		if len(files) == 0 {
-			continue
-		}
-
-		// Heuristic: If many files in one folder, treat the folder as the group
-		// Otherwise, if files share a prefix, group by prefix.
-		
-		rel, _ := filepath.Rel(root, dir)
-		groupName := filepath.Base(dir)
-		if rel == "." || groupName == "" || groupName == "fonts" {
-			// Files are loose in root, group by name prefix
-			groupByNamePrefix(&assets, files)
-		} else {
-			// Folder-based grouping (best for most packages like "noto-cjk")
-			var totalSize int64
-			for _, f := range files {
-				info, _ := os.Stat(f)
-				totalSize += info.Size()
-			}
-			
-			lang := detectLang(groupName + " " + files[0])
-			name := groupName
-			if lang != "" {
-				name = fmt.Sprintf("%s (%s)", groupName, lang)
-			}
-
-			assets = append(assets, ProtectedAsset{
-				Name:          name,
-				Type:          "font",
-				Path:          dir,
-				Size:          totalSize,
-				FormattedSize: FormatSize(totalSize),
-				Source:        "System Package / Folder",
-			})
-		}
-	}
+	// Fonts: flat scan across all font dirs, grouped by filename family prefix
+	assets = append(assets, scanFontsFlat(fontPaths)...)
 
 	return assets
 }
 
-func groupByNamePrefix(assets *[]ProtectedAsset, files []string) {
+// scanFontsFlat walks all font paths and groups font files by the part of their
+// filename before the first dash (e.g. "FiraSans" from "FiraSans-Bold.ttf").
+// Files with no dash use the full stem as the family name.
+// Grouping is entirely name-based — folder structure is ignored.
+func scanFontsFlat(roots []string) []ProtectedAsset {
+	// family -> list of absolute file paths
 	groups := make(map[string][]string)
-	for _, f := range files {
-		base := filepath.Base(f)
-		prefix := base
-		if idx := strings.Index(base, "-"); idx > 0 {
-			prefix = base[:idx]
-		} else if idx := strings.Index(base, "_"); idx > 0 {
-			prefix = base[:idx]
-		}
-		groups[prefix] = append(groups[prefix], f)
-	}
 
-	for prefix, groupFiles := range groups {
-		var totalSize int64
-		for _, f := range groupFiles {
-			info, _ := os.Stat(f)
-			totalSize += info.Size()
-		}
-		
-		lang := detectLang(prefix + " " + groupFiles[0])
-		name := prefix
-		if lang != "" {
-			name = fmt.Sprintf("%s (%s)", prefix, lang)
-		}
-
-		// Join all specific related font files into a pipe-separated path string
-		// This prevents moving the entire font directory when only these specific files are selected.
-		filesStr := strings.Join(groupFiles, "|")
-		
-		*assets = append(*assets, ProtectedAsset{
-			Name:          name,
-			Type:          "font",
-			Path:          filesStr, 
-			Size:          totalSize,
-			FormattedSize: FormatSize(totalSize),
+	for _, root := range roots {
+		filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+			if err != nil || info.IsDir() {
+				return nil
+			}
+			ext := strings.ToLower(filepath.Ext(path))
+			if ext != ".ttf" && ext != ".otf" && ext != ".woff" && ext != ".woff2" {
+				return nil
+			}
+			base := filepath.Base(path)
+			stem := strings.TrimSuffix(base, filepath.Ext(base))
+			// Family = part before first dash
+			family := stem
+			if idx := strings.Index(stem, "-"); idx > 0 {
+				family = stem[:idx]
+			}
+			groups[family] = append(groups[family], path)
+			return nil
 		})
 	}
+
+	var assets []ProtectedAsset
+	for family, files := range groups {
+		var totalSize int64
+		for _, f := range files {
+			info, err := os.Stat(f)
+			if err == nil {
+				totalSize += info.Size()
+			}
+		}
+		name := family
+		if lang := detectLang(family); lang != "" {
+			name = fmt.Sprintf("%s (%s)", family, lang)
+		}
+		assets = append(assets, ProtectedAsset{
+			Name:          name,
+			Type:          "font",
+			Path:          strings.Join(files, "|"),
+			Size:          totalSize,
+			FormattedSize: FormatSize(totalSize),
+			Source:        "System Font",
+		})
+	}
+	return assets
 }
 
 // GetPrunableAssets identifies assets that are installed but not currently protected/used.

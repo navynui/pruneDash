@@ -480,17 +480,22 @@ func renderCategory(title string, assets []system.ProtectedAsset, emoji string) 
 	for _, a := range assets {
 		// Identifier format: Name:Type
 		id := fmt.Sprintf("%s:%s", a.Name, a.Type)
+		// Build optional source tag for themes
+		sourceTag := ""
+		if a.Type == "theme" && a.Source != "" {
+			sourceTag = fmt.Sprintf(` <span class="text-[9px] font-bold text-slate-600 bg-white/5 px-1.5 py-0.5 rounded-md uppercase tracking-widest">%s</span>`, sourceToLabel(a.Source))
+		}
 		rows += fmt.Sprintf(`
 			<div class="flex items-center justify-between p-3 border-b border-white/5 hover:bg-white/5 transition group">
 				<div class="flex items-center space-x-3">
 					<input type="checkbox" name="assets" value="%s" checked 
 						   data-size="%d" data-category="%s"
 						   class="w-4 h-4 rounded bg-slate-900 border-white/10 text-brand-500 focus:ring-brand-500">
-					<span class="text-xs font-medium text-slate-300">%s</span>
+					<span class="text-xs font-medium text-slate-300">%s%s</span>
 				</div>
 				<span class="text-[10px] font-mono text-slate-500">%s</span>
 			</div>
-		`, id, a.Size, title, a.Name, a.FormattedSize)
+		`, id, a.Size, title, a.Name, sourceTag, a.FormattedSize)
 	}
 
 	return fmt.Sprintf(`
@@ -596,4 +601,24 @@ func formatProtectedList(assets []system.ProtectedAsset) string {
 	}
 	
 	return html
+}
+
+// sourceToLabel converts a Source field into a short display label for themes.
+func sourceToLabel(source string) string {
+	switch source {
+	case "SDDM Config":
+		return "sddm"
+	case "GTK Settings":
+		return "gtk"
+	case "Kitty Theme":
+		return "kitty"
+	case "Rofi Theme":
+		return "rofi"
+	case "Wofi Style":
+		return "wofi"
+	case "Hyprland Config":
+		return "hyprland"
+	default:
+		return source
+	}
 }
