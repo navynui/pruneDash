@@ -20,6 +20,12 @@ func PurgeCachesSelective(doPacman, doJournal bool) ([]string, error) {
 		if err == nil {
 			logs = append(logs, "Pacman Uninstalled: "+out2)
 		}
+
+		// 3. Paru Clone Cache (Clean build cache)
+		out3, err := RunHostCommand("rm -rf /home/nui/.cache/paru/clone/*")
+		if err == nil {
+			logs = append(logs, "Paru Clone Cache: "+out3)
+		}
 	}
 
 	if doJournal {

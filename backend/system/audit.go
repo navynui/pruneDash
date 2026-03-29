@@ -58,15 +58,18 @@ func FormatSize(bytes int64) string {
 
 // GetPacmanMetrics returns (total, reclaimable)
 func GetPacmanMetrics() (int64, int64, error) {
-	total, _ := DirSize("/host/var/cache/pacman/pkg")
+	pacmanSize, _ := DirSize("/host/var/cache/pacman/pkg")
+	paruSize, _ := DirSize("/host/home/nui/.cache/paru/clone")
+
+	total := pacmanSize + paruSize
 	
 	out, err := RunHostCommand("paccache -d -k 2")
 	if err != nil {
-		return total, 0, err
+		return total, paruSize, err
 	}
 
 	reclaimable := parsePaccacheOutput(out)
-	return total, reclaimable, nil
+	return total, reclaimable + paruSize, nil
 }
 
 // GetJournalMetrics returns (total, reclaimable)
