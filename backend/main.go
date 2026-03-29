@@ -56,6 +56,18 @@ func main() {
 	app.Get("/api/scan/logs", adaptor.HTTPHandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		scanID := r.URL.Query().Get("id")
 		if scanID == "" {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+
+		ScansMu.Lock()
+		resChan, resOk := ActiveScans[scanID]
+		logChan, logOk := ActiveLogs[scanID]
+		ScansMu.Unlock()
+
+		// Return 204 so the browser EventSource permanently stops retrying
+		if !resOk || !logOk {
+			w.WriteHeader(http.StatusNoContent)
 			return
 		}
 
@@ -64,15 +76,6 @@ func main() {
 		w.Header().Set("Connection", "keep-alive")
 		w.Header().Set("X-Accel-Buffering", "no")
 		w.Header().Set("Content-Encoding", "none")
-
-		ScansMu.Lock()
-		resChan, resOk := ActiveScans[scanID]
-		logChan, logOk := ActiveLogs[scanID]
-		ScansMu.Unlock()
-
-		if !resOk || !logOk {
-			return
-		}
 
 		// Cleanup channels after we're done
 		defer func() {
@@ -144,21 +147,33 @@ func main() {
 
 		// Return initial Loading UI with SSE console targeting the scanID
 		return c.SendString(fmt.Sprintf(`
-			<div class="mt-4 p-4 rounded-xl bg-slate-900/50 border border-brand-500/20 animate-in fade-in slide-in-from-top-4 duration-500">
+			<div id="scan-console-wrapper" class="mt-4 animate-in fade-in slide-in-from-top-4 duration-500">
 				
 				<!-- Activity Console (SSE Listener) -->
-				<div class="mb-6 bg-black/40 rounded-xl border border-white/5 p-3 overflow-hidden shadow-inner">
-					<div class="flex items-center justify-between mb-2">
-						<span class="text-[9px] font-bold uppercase tracking-widest text-slate-500">Live Activity Monitor</span>
-						<span class="flex h-1.5 w-1.5 rounded-full bg-brand-500 animate-pulse"></span>
-					</div>
-					<div hx-ext="sse" sse-connect="/api/scan/logs?id=%s" class="flex flex-col-reverse">
-						<div id="activity-log" sse-swap="log" hx-swap="beforeend" 
-							 class="h-48 overflow-y-auto scrollbar-hide flex flex-col-reverse italic">
-							<div class="text-[10px] text-slate-500 opacity-50">Handshaking with system probes...</div>
+				<div class="mb-4 bg-black/40 rounded-xl border border-white/5 overflow-hidden shadow-inner">
+					<div class="flex items-center justify-between px-3 py-2 border-b border-white/5">
+						<div class="flex items-center space-x-2">
+							<span id="log-status-dot" class="flex h-1.5 w-1.5 rounded-full bg-brand-500 animate-pulse"></span>
+							<span id="log-status-label" class="text-[9px] font-bold uppercase tracking-widest text-slate-500">Live Activity Monitor</span>
 						</div>
-						<!-- Final Result Listener -->
-						<div sse-swap="result" hx-swap="innerHTML" hx-target="#results-skeleton" class="hidden"></div>
+						<button id="log-toggle-btn"
+							onclick="(function(){
+								var log = document.getElementById('activity-log-body');
+								var btn = document.getElementById('log-toggle-btn');
+								if (log.style.display === 'none') { log.style.display = ''; btn.textContent = 'Hide'; }
+								else { log.style.display = 'none'; btn.textContent = 'View Logs'; }
+							})()"
+							class="text-[9px] font-bold text-brand-400 hover:text-brand-300 transition uppercase tracking-widest">Hide</button>
+					</div>
+					<div id="activity-log-body" class="p-3">
+						<div hx-ext="sse" sse-connect="/api/scan/logs?id=%s" class="flex flex-col-reverse">
+							<div id="activity-log" sse-swap="log" hx-swap="beforeend"
+								 class="h-48 overflow-y-auto scrollbar-hide flex flex-col-reverse italic">
+								<div class="text-[10px] text-slate-500 opacity-50">Handshaking with system probes...</div>
+							</div>
+							<!-- Final Result Listener -->
+							<div sse-swap="result" hx-swap="innerHTML" hx-target="#results-skeleton" class="hidden"></div>
+						</div>
 					</div>
 				</div>
 
@@ -296,6 +311,19 @@ func formatScanResultsHTML(res system.ScanResult) string {
 		<div id="total-protected" hx-swap-oob="innerHTML">%d</div>
 		<div id="protected-assets-count" hx-swap-oob="innerHTML">%d</div>
 		<div id="total-reclaimable" hx-swap-oob="innerHTML">%s</div>
+
+		<!-- Collapse the log panel and mark as complete -->
+		<div id="activity-log-body" hx-swap-oob="outerHTML"><div id="activity-log-body" style="display:none;"></div></div>
+		<span id="log-status-dot" hx-swap-oob="outerHTML"><span id="log-status-dot" class="flex h-1.5 w-1.5 rounded-full bg-green-500"></span></span>
+		<span id="log-status-label" hx-swap-oob="outerHTML"><span id="log-status-label" class="text-[9px] font-bold uppercase tracking-widest text-green-500">Scan Complete — View Logs</span></span>
+		<button id="log-toggle-btn" hx-swap-oob="outerHTML"><button id="log-toggle-btn"
+			onclick="(function(){
+				var log = document.getElementById('activity-log-body');
+				var btn = document.getElementById('log-toggle-btn');
+				if (log.style.display === 'none') { log.style.display = ''; btn.textContent = 'Hide'; }
+				else { log.style.display = 'none'; btn.textContent = 'View Logs'; }
+			})()"
+			class="text-[9px] font-bold text-brand-400 hover:text-brand-300 transition uppercase tracking-widest">View Logs</button></button>
 
 		<div id="intel-section" hx-swap-oob="innerHTML">
 			<div class="grid grid-cols-1 md:grid-cols-3 gap-3 mb-6">
