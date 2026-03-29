@@ -248,17 +248,26 @@ func main() {
 		if !found {
 			if id == "Package Cache" || id == "System Journals" || id == "User Cache" {
 				found = true
-				// For system items, we execute the purge immediately as before
-				// but we don't move them to "bin" as they're not restorable in the same way
-				// (or we could, but let's keep it simple for now as they're one-off commands)
-				if id == "Package Cache" { system.PurgeCachesSelective(true, false) }
-				if id == "System Journals" { system.PurgeCachesSelective(false, true) }
-				if id == "User Cache" { system.ClearUserCache() }
+				if id == "Package Cache" { 
+					system.PurgeCachesSelective(true, false)
+					LastScanResult.PacmanMetrics.Reclaim = 0
+				}
+				if id == "System Journals" { 
+					system.PurgeCachesSelective(false, true)
+					LastScanResult.JournalMetrics.Reclaim = 0
+				}
+				if id == "User Cache" { 
+					system.ClearUserCache()
+					LastScanResult.UserCacheSize = 0
+				}
 				
+				totalReclaimed := LastScanResult.PrunableSize + LastScanResult.PacmanMetrics.Reclaim + LastScanResult.JournalMetrics.Reclaim + LastScanResult.UserCacheSize
+
 				return c.SendString(fmt.Sprintf(`
 					<div hx-swap-oob="outerHTML:#row-%s"></div>
 					%s
-				`, id, formatBinSection()))
+					<div hx-swap-oob="innerHTML:#total-reclaimable">%s</div>
+				`, id, formatBinSection(true), system.FormatSize(totalReclaimed)))
 			}
 			return c.Status(404).SendString("Asset not found")
 		}
@@ -289,7 +298,7 @@ func main() {
 			%s
 			<div hx-swap-oob="innerHTML:#category-total-%s">%s</div>
 			<div hx-swap-oob="innerHTML:#total-reclaimable">%s</div>
-		`, id, formatBinSection(), aType, system.FormatSize(categoryTotal), system.FormatSize(globalTotal)))
+		`, id, formatBinSection(true), aType, system.FormatSize(categoryTotal), system.FormatSize(globalTotal + LastScanResult.PacmanMetrics.Reclaim + LastScanResult.JournalMetrics.Reclaim + LastScanResult.UserCacheSize)))
 	})
 
 	// API: Bin Restore
@@ -309,7 +318,7 @@ func main() {
 			<div class="fixed bottom-4 right-4 p-4 bg-green-500 text-white rounded-xl shadow-2xl animate-in slide-in-from-right-full">
 				Restored %s
 			</div>
-		`, formatBinSection(), name))
+		`, formatBinSection(true), name))
 	})
 
 	// API: Bin Confirm (Permanent Delete)
@@ -322,7 +331,7 @@ func main() {
 		
 		return c.SendString(fmt.Sprintf(`
 			%s
-		`, formatBinSection()))
+		`, formatBinSection(true)))
 	})
 
 	// API: Restore (Undo)
@@ -364,7 +373,9 @@ func formatScanResultsHTML(res system.ScanResult) string {
 	icons := filterAssets(res.PrunableAssets, "icon")
 	fonts := filterAssets(res.PrunableAssets, "font")
 
-	totalSizeStr := system.FormatSize(res.PrunableSize)
+	// Total is assets + system caches
+	totalReclaimable := res.PrunableSize + res.PacmanMetrics.Reclaim + res.JournalMetrics.Reclaim + res.UserCacheSize
+	totalSizeStr := system.FormatSize(totalReclaimable)
 
 	return fmt.Sprintf(`
 		<!-- OOB: stat card updates -->
@@ -427,7 +438,7 @@ func formatScanResultsHTML(res system.ScanResult) string {
 	`,
 		res.Env.WM, len(res.Assets), len(res.Assets), totalSizeStr,
 		res.Env.WM, res.Env.DM, res.Env.Bootloader,
-		formatBinSection(),
+		formatBinSection(false),
 		formatCategorySections(themes, icons, fonts),
 		formatOtherSizes(res),
 		formatProtectedList(res.Assets))
@@ -523,9 +534,14 @@ func renderCategory(title string, assets []system.ProtectedAsset, emoji string) 
 	`, emoji, title, strings.ToLower(title[:len(title)-1]), system.FormatSize(totalSize), rows)
 }
 
-func formatBinSection() string {
+func formatBinSection(isOOB bool) string {
 	assets, _ := system.GetBinAssets()
 	
+	oobAttr := ""
+	if isOOB {
+		oobAttr = " hx-swap-oob=\"true\""
+	}
+
 	rows := ""
 	var totalSize int64
 	
@@ -580,11 +596,11 @@ func formatBinSection() string {
 
 	// If no valid rows, return a hidden container to maintain the OOB target without layout impact
 	if rows == "" {
-		return `<div id="bin-section" class="hidden"></div>`
+		return fmt.Sprintf(`<div id="bin-section"%s class="hidden"></div>`, oobAttr)
 	}
 
 	return fmt.Sprintf(`
-		<div id="bin-section" class="mb-8 bg-brand-500/5 rounded-3xl border border-brand-500/20 overflow-hidden animate-in slide-in-from-top-4 duration-500 text-left shadow-2xl shadow-black/20">
+		<div id="bin-section"%s class="mb-8 bg-brand-500/5 rounded-3xl border border-brand-500/20 overflow-hidden animate-in slide-in-from-top-4 duration-500 text-left shadow-2xl shadow-black/20">
 			<div class="flex items-center justify-between bg-brand-500/10 px-5 py-3 border-b border-brand-500/10">
 				<div class="flex items-center space-x-3">
 					<div class="relative">
@@ -599,7 +615,7 @@ func formatBinSection() string {
 				%s
 			</div>
 		</div>
-	`, system.FormatSize(totalSize), rows)
+	`, oobAttr, system.FormatSize(totalSize), rows)
 }
 
 func formatLogs(logs []string) string {
