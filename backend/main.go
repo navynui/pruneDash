@@ -693,7 +693,7 @@ func formatProtectedList(assets []system.ProtectedAsset) string {
 		
 		for _, a := range list {
 			sourceTag := ""
-			if a.Type == "theme" && a.Source != "" {
+			if (a.Type == "theme" || a.Type == "font") && a.Source != "" {
 				sourceTag = fmt.Sprintf(` <span class="text-[8px] font-bold text-slate-600 ml-1 uppercase">[%s]</span>`, sourceToLabel(a.Source))
 			}
 			html += fmt.Sprintf(`
@@ -709,22 +709,58 @@ func formatProtectedList(assets []system.ProtectedAsset) string {
 	return html
 }
 
-// sourceToLabel converts a Source field into a short display label for themes.
+// sourceToLabel converts a Source field into a short display label.
 func sourceToLabel(source string) string {
+	if strings.Contains(source, ", ") {
+		parts := strings.Split(source, ", ")
+		var labels []string
+		for _, p := range parts {
+			labels = append(labels, sourceToLabel(strings.TrimSpace(p)))
+		}
+		// Deduplicate labels
+		unique := make(map[string]bool)
+		var result []string
+		for _, l := range labels {
+			if !unique[l] {
+				unique[l] = true
+				result = append(result, l)
+			}
+		}
+		return strings.Join(result, ", ")
+	}
+
 	switch source {
 	case "SDDM Config":
 		return "sddm"
 	case "GTK Settings":
 		return "gtk"
-	case "Kitty Theme":
+	case "Kitty Theme", "Kitty Config":
 		return "kitty"
-	case "Rofi Theme":
+	case "Rofi Theme", "Rofi Config":
 		return "rofi"
 	case "Wofi Style":
 		return "wofi"
 	case "Hyprland Config":
-		return "hyprland"
+		return "hypr"
+	case "VSCode":
+		return "code"
+	case "Zed":
+		return "zed"
+	case "Firefox":
+		return "firefox"
+	case "Chromium":
+		return "chrome"
+	case "KDE":
+		return "kde"
+	case "Nautilus":
+		return "nautilus"
+	case "System Font":
+		return "system"
+	case "Alacritty Config":
+		return "alacritty"
+	case "Waybar CSS":
+		return "waybar"
 	default:
-		return source
+		return strings.ToLower(source)
 	}
 }

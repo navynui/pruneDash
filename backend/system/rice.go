@@ -274,6 +274,18 @@ func GetProtectedAssets(logChan chan string, env CoreEnvironment) []ProtectedAss
 			assets = append(assets, ParseWaybarConfig("/host/home/nui/.config/waybar/style.css")...)
 		} else if app == "wofi" {
 			assets = append(assets, ParseWofiConfig("/host/home/nui/.config/wofi/config")...)
+		} else if app == "code" || app == "vscode" || app == "vscodium" {
+			assets = append(assets, ParseVSCodeConfig("/host/home/nui/.config/Code/User/settings.json")...)
+			assets = append(assets, ParseVSCodeConfig("/host/home/nui/.config/VSCodium/User/settings.json")...)
+			assets = append(assets, ParseVSCodeConfig("/host/home/nui/.config/Code - OSS/User/settings.json")...)
+		} else if app == "zed" {
+			assets = append(assets, ParseZedConfig("/host/home/nui/.config/zed/settings.json")...)
+		} else if app == "firefox" {
+			assets = append(assets, ParseFirefoxConfig()...)
+		} else if app == "chromium" || app == "brave" || app == "google-chrome" {
+			assets = append(assets, ParseChromiumConfig()...)
+		} else if app == "dolphin" || env.WM == "plasma" {
+			assets = append(assets, ParseKDEConfig("/host/home/nui/.config/kdeglobals")...)
 		}
 	}
 
@@ -574,9 +586,13 @@ func DetectApps(logChan chan string) []string {
 	}
 
 	// 4. Common Rice Tools/Apps
-	common := []string{"alacritty", "kitty", "foot", "waybar", "polybar", "rofi", "wofi", "firefox", "thunar", "dolphin"}
+	common := []string{"alacritty", "kitty", "foot", "waybar", "polybar", "rofi", "wofi", "firefox", "chromium", "zed", "code", "nautilus", "dolphin", "thunar", "brave", "vlc", "mpv"}
 	for _, app := range common {
 		if _, err := RunHostCommand("command -v " + app); err == nil {
+			apps = append(apps, app)
+		}
+		// Also check if running
+		if _, err := RunHostCommand("pgrep -u nui " + app); err == nil {
 			apps = append(apps, app)
 		}
 	}
@@ -793,15 +809,30 @@ func extractValue(line string) string {
 }
 
 func deduplicateAssets(assets []ProtectedAsset) []ProtectedAsset {
-	seen := make(map[string]bool)
-	var j []ProtectedAsset
+	var merged []ProtectedAsset
+	seen := make(map[string]int) // Name+Type -> index in merged
 	for _, a := range assets {
-		if _, ok := seen[a.Name+a.Type]; !ok {
-			seen[a.Name+a.Type] = true
-			j = append(j, a)
+		if a.Name == "" || a.Name == "unknown" { continue }
+		key := a.Name + ":" + a.Type
+		if idx, ok := seen[key]; ok {
+			// Asset already exists. Append source if not already present.
+			if !strings.Contains(merged[idx].Source, a.Source) {
+				if merged[idx].Source == "" {
+					merged[idx].Source = a.Source
+				} else {
+					merged[idx].Source += ", " + a.Source
+				}
+			}
+			// Keep highest priority
+			if a.Priority < merged[idx].Priority {
+				merged[idx].Priority = a.Priority
+			}
+		} else {
+			seen[key] = len(merged)
+			merged = append(merged, a)
 		}
 	}
-	return j
+	return merged
 }
 
 func deduplicateStrings(input []string) []string {
@@ -847,5 +878,93 @@ func ParseSDDMConfig(logChan chan string) string {
 		}
 	}
 	return ""
+}
+
+func ParseVSCodeConfig(path string) []ProtectedAsset {
+	var assets []ProtectedAsset
+	content, _ := os.ReadFile(path)
+	if len(content) == 0 { return assets }
+	
+	re := regexp.MustCompile(`"editor.fontFamily"\s*:\s*"([^"]+)"`)
+	match := re.FindStringSubmatch(string(content))
+	if len(match) > 1 {
+		for _, f := range strings.Split(match[1], ",") {
+			f = strings.Trim(strings.TrimSpace(f), "\"'")
+			if f != "" {
+				assets = append(assets, ProtectedAsset{Name: f, Type: "font", Source: "VSCode", Priority: 2})
+			}
+		}
+	}
+	return assets
+}
+
+func ParseZedConfig(path string) []ProtectedAsset {
+	var assets []ProtectedAsset
+	content, _ := os.ReadFile(path)
+	if len(content) == 0 { return assets }
+	
+	fields := []string{"ui_font_family", "buffer_font_family", "terminal.font_family"}
+	for _, field := range fields {
+		re := regexp.MustCompile(fmt.Sprintf(`"%s"\s*:\s*"([^"]+)"`, field))
+		match := re.FindStringSubmatch(string(content))
+		if len(match) > 1 {
+			assets = append(assets, ProtectedAsset{Name: match[1], Type: "font", Source: "Zed", Priority: 2})
+		}
+	}
+	return assets
+}
+
+func ParseFirefoxConfig() []ProtectedAsset {
+	var assets []ProtectedAsset
+	matches, _ := filepath.Glob("/host/home/nui/.mozilla/firefox/*/prefs.js")
+	for _, p := range matches {
+		content, _ := os.ReadFile(p)
+		re := regexp.MustCompile(`user_pref\("font\.name\.[^"\)]+",\s*"([^"]+)"\)`)
+		found := re.FindAllStringSubmatch(string(content), -1)
+		for _, m := range found {
+			assets = append(assets, ProtectedAsset{Name: m[1], Type: "font", Source: "Firefox", Priority: 2})
+		}
+	}
+	return assets
+}
+
+func ParseChromiumConfig() []ProtectedAsset {
+	var assets []ProtectedAsset
+	paths := []string{
+		"/host/home/nui/.config/chromium/Default/Preferences",
+		"/host/home/nui/.config/google-chrome/Default/Preferences",
+		"/host/home/nui/.config/BraveSoftware/Brave-Browser/Default/Preferences",
+	}
+	for _, p := range paths {
+		content, _ := os.ReadFile(p)
+		if len(content) == 0 { continue }
+		re := regexp.MustCompile(`"fonts":\{"standard":\{"[^"]+":"([^"]+)"\}`)
+		match := re.FindStringSubmatch(string(content))
+		if len(match) > 1 {
+			assets = append(assets, ProtectedAsset{Name: match[1], Type: "font", Source: "Chromium", Priority: 2})
+		}
+	}
+	return assets
+}
+
+func ParseKDEConfig(path string) []ProtectedAsset {
+	var assets []ProtectedAsset
+	content, _ := os.ReadFile(path)
+	if len(content) == 0 { return assets }
+	
+	lines := strings.Split(string(content), "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "font=") || strings.HasPrefix(line, "fixed=") {
+			parts := strings.Split(line, "=")
+			if len(parts) >= 2 {
+				fontInfo := strings.Split(parts[1], ",")
+				if len(fontInfo) > 0 {
+					assets = append(assets, ProtectedAsset{Name: fontInfo[0], Type: "font", Source: "KDE", Priority: 1})
+				}
+			}
+		}
+	}
+	return assets
 }
 
